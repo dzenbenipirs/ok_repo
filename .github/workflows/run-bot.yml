@@ -46,3 +46,11 @@ jobs:
       with:
         name: bot-log
         path: bot.log
+
+    - name: Upload screenshots
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: screenshots
+        path: |
+          *.png
