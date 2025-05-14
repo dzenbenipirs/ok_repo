@@ -37,6 +37,7 @@ options = uc.ChromeOptions()
 options.add_argument('--headless=new')
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
+options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
 
 log.info("Создаём undetected_chromedriver...")
 driver = uc.Chrome(options=options)
@@ -55,9 +56,14 @@ def download_video(url, filename):
         raise
 
 try:
-    # Вход в OK.RU
-    log.info("Открываем OK.RU...")
-    driver.get("https://ok.ru/")
+    # Прямой переход на страницу логина
+    login_url = "https://ok.ru/dk?st.cmd=anonymMain&st.redirect=home"
+    log.info(f"Открываем страницу входа: {login_url}")
+    driver.get(login_url)
+    time.sleep(3)
+    log.info(f"Фактический URL: {driver.current_url}")
+    driver.save_screenshot("after_login_page.png")
+
     wait.until(EC.presence_of_element_located((By.NAME, "st.email"))).send_keys(EMAIL)
     driver.find_element(By.NAME, "st.password").send_keys(PASSWORD)
     driver.find_element(By.CLASS_NAME, "login-form-actions").click()
