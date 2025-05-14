@@ -4,35 +4,36 @@ import time
 import requests
 import logging
 import sys
+import threading
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-# Настройка логгера
+from telegram import Bot, Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+
+# Логгер
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[
-        logging.FileHandler("bot.log", mode='w'),
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.FileHandler("bot.log", mode='w'), logging.StreamHandler(sys.stdout)]
 )
 log = logging.getLogger(__name__)
 
 EMAIL = os.environ.get("OK_EMAIL")
 PASSWORD = os.environ.get("OK_PASSWORD")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_USER_ID = os.environ.get("TELEGRAM_USER_ID")  # В виде строки
 
-if not EMAIL or not PASSWORD:
-    log.error("❌ Переменные окружения OK_EMAIL и OK_PASSWORD не заданы.")
+if not all([EMAIL, PASSWORD, TELEGRAM_TOKEN, TELEGRAM_USER_ID]):
+    log.error("❌ Отсутствуют необходимые переменные окружения.")
     sys.exit(1)
 
-log.info("Запуск бота...")
-log.info(f"EMAIL найден: {EMAIL[:3]}***")
-
+# Настройка браузера
 options = uc.ChromeOptions()
-options.add_argument('--headless=new')  # Убери для отладки
+options.add_argument('--headless=new')
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
 options.add_argument('--disable-gpu')
@@ -40,9 +41,31 @@ options.add_argument('--window-size=1920,1080')
 options.add_argument('--start-maximized')
 options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
 
-log.info("Создаём undetected_chromedriver...")
 driver = uc.Chrome(options=options)
 wait = WebDriverWait(driver, 20)
+
+# Telegram auth sync
+sms_code_received = threading.Event()
+sms_code_value = None
+
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text("👋 Жду код для подтверждения входа.")
+
+def handle_code(update: Update, context: CallbackContext):
+    global sms_code_value
+    if str(update.effective_user.id) != TELEGRAM_USER_ID:
+        update.message.reply_text("❌ У вас нет доступа.")
+        return
+    sms_code_value = update.message.text.strip()
+    sms_code_received.set()
+    update.message.reply_text("✅ Код принят.")
+
+def run_telegram_bot():
+    updater = Updater(TELEGRAM_TOKEN)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_code))
+    updater.start_polling()
 
 def download_video(url, filename):
     try:
@@ -68,8 +91,42 @@ def try_confirm_identity():
     except TimeoutException:
         log.info("✅ Подтверждение 'It’s you' не требовалось.")
 
+def wait_for_sms_code():
+    try:
+        code_button = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//button[contains(., 'Get code') or contains(., 'Send code')]")
+        ))
+        code_button.click()
+        log.info("📲 Нажата кнопка отправки кода.")
+        driver.save_screenshot("code_requested.png")
+    except TimeoutException:
+        log.warning("🚫 Не найдена кнопка 'Get code'.")
+
+    log.info("⏳ Ожидаем код от пользователя в Telegram...")
+    sms_code_received.wait(timeout=300)
+    if not sms_code_value:
+        log.error("❌ Код не получен в течение времени ожидания.")
+        sys.exit(1)
+
+    try:
+        code_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='tel']")))
+        code_input.send_keys(sms_code_value)
+        submit_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//button[contains(., 'Continue') or contains(., 'Submit')]")
+        ))
+        submit_btn.click()
+        log.info("✅ Код подтверждён.")
+        driver.save_screenshot("code_entered.png")
+    except Exception as e:
+        log.error(f"❌ Ошибка при вводе кода: {e}")
+        driver.save_screenshot("code_error.png")
+        sys.exit(1)
+
+# Запуск Telegram бота в фоновом потоке
+telegram_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+telegram_thread.start()
+
 try:
-    # Вход в OK.RU
     log.info("Открываем OK.RU...")
     driver.get("https://ok.ru/")
     wait.until(EC.presence_of_element_located((By.NAME, "st.email"))).send_keys(EMAIL)
@@ -84,6 +141,7 @@ try:
     driver.save_screenshot("after_login_submit.png")
 
     try_confirm_identity()
+    wait_for_sms_code()
 
     test_post_url = "https://ok.ru/group/70000033095519/post"
     log.info(f"Проверка входа через переход: {test_post_url}")
