@@ -5,7 +5,7 @@ import time
 import requests
 import logging
 import sys
-import undetected_chromedriver.v2 as uc
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 
@@ -32,7 +32,9 @@ log.info(f"EMAIL найден: {EMAIL[:3]}***")
 
 # Настройки браузера с undetected_chromedriver
 options = uc.ChromeOptions()
-options.headless = False  # Убираем headless для диагностики
+options.add_argument('--headless=new')
+options.add_argument('--no-sandbox')
+options.add_argument('--disable-dev-shm-usage')
 log.info("Создаём undetected_chromedriver...")
 log.info("Запускаем undetected_chromedriver...")
 driver = uc.Chrome(options=options)
