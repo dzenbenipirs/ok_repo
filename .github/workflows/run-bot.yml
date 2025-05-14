@@ -21,7 +21,10 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y wget unzip xvfb libnss3 libxss1 libasound2 fonts-liberation libappindicator3-1 xdg-utils
+        sudo apt-get install -y \
+          wget unzip xvfb \
+          libnss3 libxss1 libasound2t64 \
+          fonts-liberation libappindicator3-1 xdg-utils
 
     - name: Install Python dependencies
       run: |
