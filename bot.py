@@ -34,8 +34,7 @@ log.info(f"EMAIL найден: {EMAIL[:3]}***")
 
 # Настройка браузера
 options = uc.ChromeOptions()
-# Оставляем headless для CI, можно отключить для локального запуска
-options.add_argument('--headless=new')
+options.add_argument('--headless=new')  # для CI можно оставить; убери для локального запуска
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
 options.add_argument('--disable-gpu')
@@ -66,7 +65,6 @@ try:
     wait.until(EC.presence_of_element_located((By.NAME, "st.email"))).send_keys(EMAIL)
     driver.find_element(By.NAME, "st.password").send_keys(PASSWORD)
 
-    # Нажимаем на настоящую кнопку входа внутри login-form-actions
     log.info("Нажимаем кнопку входа...")
     login_btn = wait.until(EC.element_to_be_clickable(
         (By.XPATH, "//div[contains(@class, 'login-form-actions')]//input[@type='submit']")
@@ -76,14 +74,21 @@ try:
     time.sleep(2)
     driver.save_screenshot("after_login_submit.png")
 
-    # Проверка успешного входа
-    try:
-        wait.until(EC.presence_of_element_located((By.ID, "hook_Block_TopUserMenu")))
-        log.info("✅ Успешный вход. Пользователь авторизован.")
-    except TimeoutException:
-        log.error("❌ Не удалось войти. Возможно, неправильный логин/пароль или капча.")
-        driver.save_screenshot("login_failed.png")
+    # Проверка входа через попытку открыть форму постинга
+    test_post_url = "https://ok.ru/group/70000033095519/post"
+    log.info(f"Проверка входа через переход: {test_post_url}")
+    driver.get(test_post_url)
+    time.sleep(5)
+
+    body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
+    log.info(f"Класс <body>: {body_class}")
+
+    if "anonym" in body_class:
+        log.error("❌ Не авторизован. OK.ru перенаправил на страницу ошибки.")
+        driver.save_screenshot("not_logged_in.png")
         sys.exit(1)
+
+    log.info("✅ Пользователь авторизован. Доступ к постингу подтверждён.")
 
     # Чтение CSV и публикация постов
     with open("posts.csv", newline='', encoding="utf-8") as csvfile:
