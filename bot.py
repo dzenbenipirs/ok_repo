@@ -76,10 +76,13 @@ def download_video(url, filename):
 def try_confirm_identity():
     try:
         confirm_btn = wait.until(
-            EC.element_to_be_clickable((By.XPATH,
-                "//input[@value='Yes, confirm']"
-                "|//button[contains(., 'Yes, confirm')]"
-                "|//button[contains(., 'Да, это я')]")
+            EC.element_to_be_clickable(
+                (By.XPATH,
+                 "//input[@value='Yes, confirm']"
+                 " | //button[contains(text(), 'Yes, confirm')]"
+                 " | //button[contains(text(), 'Да, это я')]"
+                )
+            )
         )
         confirm_btn.click()
         log.info("🔓 'It’s you' пройдено.")
@@ -89,7 +92,7 @@ def try_confirm_identity():
         log.info("✅ Страница 'It’s you' не показана.")
 
 
-def retrieve_sms_code_via_telegram(timeout=120, poll_interval=5):
+def retrieve_sms_code_via_telegram"(timeout=120, poll_interval=5):
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     deadline = time.time() + timeout
     last_update_id = None
