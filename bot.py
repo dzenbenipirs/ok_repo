@@ -66,13 +66,6 @@ def load_cookies():
             driver.add_cookie(cookie)
         driver.get("https://ok.ru/feed")
         time.sleep(3)
-        if "anonym" in driver.find_element(By.TAG_NAME, "body").get_attribute("class"):
-            log.warning("⚠️ Cookies недействительны, требуется вход вручную.")
-            return False
-        else:
-            log.info("🔐 Успешно авторизовались через cookies.")
-            return True
-    return False
 
 def save_cookies():
     log.info("💾 Сохраняем cookies...")
@@ -92,11 +85,12 @@ def try_confirm_identity():
 
 def login_if_needed():
     driver.get("https://ok.ru/")
+    driver.save_screenshot("auth_page_initial.png")  # 📸 Скриншот начальной страницы
     time.sleep(3)
     body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
 
     if "anonym" not in body_class:
-        log.info("🔐 Уже авторизованы.")
+        log.info("🔐 Уже авторизованы через cookies.")
         return
 
     log.info("🔑 Входим вручную...")
@@ -112,23 +106,22 @@ def login_if_needed():
     driver.save_screenshot("after_login_submit.png")
     try_confirm_identity()
 
-    driver.get("https://ok.ru/feed")
+    test_url = "https://ok.ru/group/70000033095519/post"
+    driver.get(test_url)
     time.sleep(3)
-    if "anonym" in driver.find_element(By.TAG_NAME, "body").get_attribute("class"):
-        log.error("❌ Вход не удался, остались анонимом.")
+    body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
+
+    if "anonym" in body_class:
+        log.error("❌ Вход не удался. OK требует подтверждение.")
         driver.save_screenshot("not_logged_in.png")
-        if os.path.exists("cookies.json"):
-            os.remove("cookies.json")
-            log.info("🗑️ Удалены устаревшие cookies.")
         sys.exit(1)
-    else:
-        log.info("✅ Авторизация через форму прошла успешно.")
-        save_cookies()
+
+    log.info("✅ Авторизация подтверждена.")
+    save_cookies()
 
 try:
-    cookies_ok = load_cookies()
-    if not cookies_ok:
-        login_if_needed()
+    load_cookies()
+    login_if_needed()
 
     with open("posts.csv", newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
@@ -156,7 +149,7 @@ try:
             try:
                 video_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='file']")))
                 video_input.send_keys(os.path.abspath(video_file))
-                log.info("🎞️ Видео загружается...")
+                log.info("🎮 Видео загружается...")
                 time.sleep(10)
 
                 desc_field = driver.find_element(By.XPATH, "//textarea")
