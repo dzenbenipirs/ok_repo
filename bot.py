@@ -11,6 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
+# Настройка логгера
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -52,11 +53,6 @@ def download_video(url, filename):
         log.error(f"❌ Ошибка при загрузке видео: {e}")
         raise
 
-def save_cookies():
-    log.info("💾 Сохраняем cookies...")
-    with open("cookies.json", "w") as f:
-        json.dump(driver.get_cookies(), f)
-
 def load_cookies():
     if os.path.exists("cookies.json"):
         log.info("🔄 Загрузка cookies...")
@@ -67,33 +63,36 @@ def load_cookies():
             if 'sameSite' in cookie:
                 del cookie['sameSite']
             driver.add_cookie(cookie)
+        driver.get("https://ok.ru/feed")
+        time.sleep(3)
 
-def is_logged_in():
-    driver.get("https://ok.ru/feed")
-    time.sleep(3)
-    body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
-    if "anonym" in body_class or "stub" in driver.page_source.lower():
-        return False
-    return True
+def save_cookies():
+    log.info("📂 Сохраняем cookies...")
+    with open("cookies.json", "w") as f:
+        json.dump(driver.get_cookies(), f)
 
 def try_confirm_identity():
     try:
+        log.info("🔍 Проверяем необходимость подтверждения 'Это вы?'...")
+        driver.save_screenshot("after_login_initial.png")
         confirm_btn = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//input[@value='Yes, confirm'] | //button[contains(text(), 'Yes, confirm')]")
+            (By.XPATH, "//input[@value='Yes, confirm'] | //button[contains(text(), 'Yes, confirm')] | //button[contains(text(), 'Да, подтвердить')] | //div[contains(text(), 'Yes, confirm')] | //div[contains(text(), 'Да, подтвердить')]")
         ))
+        driver.save_screenshot("before_confirm_click.png")
         confirm_btn.click()
-        log.info("🔓 Подтверждение 'It’s you' пройдено.")
+        log.info("🔓 Подтверждение 'Это вы' пройдено.")
         time.sleep(2)
+        driver.save_screenshot("after_confirm_click.png")
     except TimeoutException:
         log.info("✅ Подтверждение не требовалось.")
 
 def login_if_needed():
     driver.get("https://ok.ru/")
-    driver.save_screenshot("auth_page_initial.png")
     time.sleep(3)
+    driver.save_screenshot("auth_check.png")
+    body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
 
-    load_cookies()
-    if is_logged_in():
+    if "anonym" not in body_class:
         log.info("🔐 Уже авторизованы через cookies.")
         return
 
@@ -110,8 +109,13 @@ def login_if_needed():
     driver.save_screenshot("after_login_submit.png")
     try_confirm_identity()
 
-    if not is_logged_in():
-        log.error("❌ Вход не удался. OK требует подтверждение или cookies некорректны.")
+    driver.get("https://ok.ru/group/70000033095519/post")
+    time.sleep(3)
+    driver.save_screenshot("post_page_check.png")
+    body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
+
+    if "anonym" in body_class:
+        log.error("❌ Вход не удался. OK требует подтверждение.")
         driver.save_screenshot("not_logged_in.png")
         sys.exit(1)
 
@@ -119,6 +123,7 @@ def login_if_needed():
     save_cookies()
 
 try:
+    load_cookies()
     login_if_needed()
 
     with open("posts.csv", newline='', encoding="utf-8") as csvfile:
@@ -147,7 +152,7 @@ try:
             try:
                 video_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='file']")))
                 video_input.send_keys(os.path.abspath(video_file))
-                log.info("🎞️ Видео загружается...")
+                log.info("🎮Видео загружается...")
                 time.sleep(10)
 
                 desc_field = driver.find_element(By.XPATH, "//textarea")
