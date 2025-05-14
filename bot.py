@@ -1,4 +1,3 @@
-
 import csv
 import os
 import time
@@ -12,6 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
+# Настройка логгера
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -58,17 +58,21 @@ def load_cookies():
     if os.path.exists("cookies.json"):
         log.info("🔄 Загрузка cookies...")
         driver.get("https://ok.ru/")
-        time.sleep(2)
         with open("cookies.json", "r") as f:
             cookies = json.load(f)
         for cookie in cookies:
             if 'sameSite' in cookie:
                 del cookie['sameSite']
-            if 'expiry' in cookie:
-                del cookie['expiry']
             driver.add_cookie(cookie)
         driver.get("https://ok.ru/feed")
         time.sleep(3)
+        if "anonym" in driver.find_element(By.TAG_NAME, "body").get_attribute("class"):
+            log.warning("⚠️ Cookies недействительны, требуется вход вручную.")
+            return False
+        else:
+            log.info("🔐 Успешно авторизовались через cookies.")
+            return True
+    return False
 
 def save_cookies():
     log.info("💾 Сохраняем cookies...")
@@ -92,7 +96,7 @@ def login_if_needed():
     body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
 
     if "anonym" not in body_class:
-        log.info("🔐 Уже авторизованы через cookies.")
+        log.info("🔐 Уже авторизованы.")
         return
 
     log.info("🔑 Входим вручную...")
@@ -108,22 +112,23 @@ def login_if_needed():
     driver.save_screenshot("after_login_submit.png")
     try_confirm_identity()
 
-    test_url = "https://ok.ru/group/70000033095519/post"
-    driver.get(test_url)
+    driver.get("https://ok.ru/feed")
     time.sleep(3)
-    body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
-
-    if "anonym" in body_class:
-        log.error("❌ Вход не удался. OK требует подтверждение.")
+    if "anonym" in driver.find_element(By.TAG_NAME, "body").get_attribute("class"):
+        log.error("❌ Вход не удался, остались анонимом.")
         driver.save_screenshot("not_logged_in.png")
+        if os.path.exists("cookies.json"):
+            os.remove("cookies.json")
+            log.info("🗑️ Удалены устаревшие cookies.")
         sys.exit(1)
-
-    log.info("✅ Авторизация подтверждена.")
-    save_cookies()
+    else:
+        log.info("✅ Авторизация через форму прошла успешно.")
+        save_cookies()
 
 try:
-    load_cookies()
-    login_if_needed()
+    cookies_ok = load_cookies()
+    if not cookies_ok:
+        login_if_needed()
 
     with open("posts.csv", newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
@@ -146,9 +151,10 @@ try:
                 continue
 
             driver.get(group_post_url)
+            time.sleep(5)
+
             try:
-                wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='file']")))
-                video_input = driver.find_element(By.XPATH, "//input[@type='file']")
+                video_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='file']")))
                 video_input.send_keys(os.path.abspath(video_file))
                 log.info("🎞️ Видео загружается...")
                 time.sleep(10)
