@@ -1,3 +1,4 @@
+
 import csv
 import os
 import time
@@ -11,7 +12,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
-# Настройка логгера
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -58,11 +58,14 @@ def load_cookies():
     if os.path.exists("cookies.json"):
         log.info("🔄 Загрузка cookies...")
         driver.get("https://ok.ru/")
+        time.sleep(2)
         with open("cookies.json", "r") as f:
             cookies = json.load(f)
         for cookie in cookies:
             if 'sameSite' in cookie:
                 del cookie['sameSite']
+            if 'expiry' in cookie:
+                del cookie['expiry']
             driver.add_cookie(cookie)
         driver.get("https://ok.ru/feed")
         time.sleep(3)
@@ -105,7 +108,6 @@ def login_if_needed():
     driver.save_screenshot("after_login_submit.png")
     try_confirm_identity()
 
-    # Проверка входа через переход на /post
     test_url = "https://ok.ru/group/70000033095519/post"
     driver.get(test_url)
     time.sleep(3)
@@ -144,10 +146,9 @@ try:
                 continue
 
             driver.get(group_post_url)
-            time.sleep(5)
-
             try:
-                video_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='file']")))
+                wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='file']")))
+                video_input = driver.find_element(By.XPATH, "//input[@type='file']")
                 video_input.send_keys(os.path.abspath(video_file))
                 log.info("🎞️ Видео загружается...")
                 time.sleep(10)
