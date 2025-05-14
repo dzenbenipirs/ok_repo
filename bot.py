@@ -34,9 +34,11 @@ log.info(f"EMAIL найден: {EMAIL[:3]}***")
 
 # Настройка браузера
 options = uc.ChromeOptions()
-options.add_argument('--headless')  # old headless mode (более стабильный в CI)
+# Оставляем headless для CI, можно отключить для локального запуска
+options.add_argument('--headless=new')
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
+options.add_argument('--disable-gpu')
 options.add_argument('--window-size=1920,1080')
 options.add_argument('--start-maximized')
 options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
@@ -58,18 +60,21 @@ def download_video(url, filename):
         raise
 
 try:
-    # Прямой переход на страницу логина
-    login_url = "https://ok.ru/dk?st.cmd=anonymMain&st.redirect=home"
-    log.info(f"Открываем страницу входа: {login_url}")
-    driver.get(login_url)
-    time.sleep(3)
-    log.info(f"Фактический URL: {driver.current_url}")
-    time.sleep(2)  # дожидаемся рендера
-    driver.save_screenshot("after_login_page.png")
-
+    # Вход в OK.RU
+    log.info("Открываем OK.RU...")
+    driver.get("https://ok.ru/")
     wait.until(EC.presence_of_element_located((By.NAME, "st.email"))).send_keys(EMAIL)
     driver.find_element(By.NAME, "st.password").send_keys(PASSWORD)
-    driver.find_element(By.CLASS_NAME, "login-form-actions").click()
+
+    # Нажимаем на настоящую кнопку входа внутри login-form-actions
+    log.info("Нажимаем кнопку входа...")
+    login_btn = wait.until(EC.element_to_be_clickable(
+        (By.XPATH, "//div[contains(@class, 'login-form-actions')]//input[@type='submit']")
+    ))
+    login_btn.click()
+
+    time.sleep(2)
+    driver.save_screenshot("after_login_submit.png")
 
     # Проверка успешного входа
     try:
