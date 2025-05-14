@@ -1,20 +1,22 @@
+
 import csv
 import os
 import time
 import requests
 import logging
+import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException
 
-# Настройка логгера
+# Настройка логгера (в начале)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
-        logging.StreamHandler(),  # вывод в консоль
-        logging.FileHandler("bot.log")  # лог-файл
+        logging.FileHandler("bot.log", mode='w'),
+        logging.StreamHandler(sys.stdout)
     ]
 )
 log = logging.getLogger(__name__)
@@ -22,7 +24,14 @@ log = logging.getLogger(__name__)
 EMAIL = os.environ.get("OK_EMAIL")
 PASSWORD = os.environ.get("OK_PASSWORD")
 
-# Настройки headless Chrome
+if not EMAIL or not PASSWORD:
+    log.error("Переменные окружения OK_EMAIL и OK_PASSWORD не заданы.")
+    sys.exit(1)
+
+log.info("Запуск бота...")
+log.info(f"EMAIL найден: {EMAIL[:3]}***")
+
+# Настройки браузера
 options = Options()
 options.add_argument("--headless")
 options.add_argument("--no-sandbox")
@@ -59,7 +68,7 @@ try:
             description = row['description']
             video_file = "video_temp.mp4"
 
-            log.info(f"--- Начинаем обработку группы: {group_url} ---")
+            log.info(f"--- Обработка группы: {group_url} ---")
             download_video(video_url, video_file)
 
             log.info(f"Переход в группу: {group_url}")
@@ -71,32 +80,33 @@ try:
                 driver.find_element(By.XPATH, "//button[contains(., 'Видео')]").click()
                 time.sleep(3)
 
-                log.info("Выбираем видеофайл...")
+                log.info("Загрузка видео...")
                 upload_input = driver.find_element(By.XPATH, "//input[@type='file']")
                 upload_input.send_keys(os.path.abspath(video_file))
                 time.sleep(10)
 
-                log.info("Вводим описание поста...")
+                log.info("Ввод описания...")
                 desc_field = driver.find_element(By.XPATH, "//textarea")
                 desc_field.send_keys(description)
                 time.sleep(1)
 
-                log.info("Публикуем пост...")
+                log.info("Публикация поста...")
                 publish_button = driver.find_element(By.XPATH, "//button[contains(., 'Опубликовать')]")
                 publish_button.click()
                 log.info("✅ Пост опубликован!")
 
             except NoSuchElementException as e:
-                log.error(f"❌ Не удалось найти элемент: {e}")
+                log.error(f"❌ Элемент не найден: {e}")
 
             finally:
                 if os.path.exists(video_file):
                     os.remove(video_file)
-                    log.info("Временный видеофайл удалён.")
+                    log.info("Временный файл удалён.")
                 time.sleep(5)
 
 except Exception as e:
-    log.exception(f"Ошибка в основном процессе: {e}")
+    log.exception(f"Ошибка выполнения скрипта: {e}")
+
 finally:
     driver.quit()
-    log.info("Сессия Selenium завершена.")
+    log.info("Сессия завершена.")
