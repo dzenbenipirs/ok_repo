@@ -1,6 +1,7 @@
 import csv
 import os
 import time
+import json
 import requests
 import logging
 import sys
@@ -28,11 +29,8 @@ if not EMAIL or not PASSWORD:
     log.error("❌ Переменные окружения OK_EMAIL и OK_PASSWORD не заданы.")
     sys.exit(1)
 
-log.info("Запуск бота...")
-log.info(f"EMAIL найден: {EMAIL[:3]}***")
-
 options = uc.ChromeOptions()
-options.add_argument('--headless=new')  # Убери для отладки
+options.add_argument('--headless=new')  # убери для отладки
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
 options.add_argument('--disable-gpu')
@@ -40,7 +38,6 @@ options.add_argument('--window-size=1920,1080')
 options.add_argument('--start-maximized')
 options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
 
-log.info("Создаём undetected_chromedriver...")
 driver = uc.Chrome(options=options)
 wait = WebDriverWait(driver, 20)
 
@@ -56,6 +53,24 @@ def download_video(url, filename):
         log.error(f"❌ Ошибка при загрузке видео: {e}")
         raise
 
+def save_cookies():
+    log.info("💾 Сохраняем cookies...")
+    with open("cookies.json", "w") as f:
+        json.dump(driver.get_cookies(), f)
+
+def load_cookies():
+    if os.path.exists("cookies.json"):
+        log.info("🔄 Загружаем cookies...")
+        driver.get("https://ok.ru/")
+        with open("cookies.json", "r") as f:
+            cookies = json.load(f)
+        for cookie in cookies:
+            if 'sameSite' in cookie:
+                del cookie['sameSite']
+            driver.add_cookie(cookie)
+        driver.get("https://ok.ru/feed")
+        time.sleep(3)
+
 def try_confirm_identity():
     try:
         confirm_btn = wait.until(EC.element_to_be_clickable(
@@ -64,42 +79,50 @@ def try_confirm_identity():
         confirm_btn.click()
         log.info("🔓 Подтверждение 'It’s you' пройдено.")
         time.sleep(2)
-        driver.save_screenshot("after_confirm_identity.png")
     except TimeoutException:
-        log.info("✅ Подтверждение 'It’s you' не требовалось.")
+        log.info("✅ Подтверждение не требовалось.")
 
 try:
-    # Вход в OK.RU
-    log.info("Открываем OK.RU...")
-    driver.get("https://ok.ru/")
-    wait.until(EC.presence_of_element_located((By.NAME, "st.email"))).send_keys(EMAIL)
-    driver.find_element(By.NAME, "st.password").send_keys(PASSWORD)
+    log.info("Запуск скрипта...")
 
-    log.info("Нажимаем кнопку входа...")
-    login_btn = wait.until(EC.element_to_be_clickable(
-        (By.XPATH, "//div[contains(@class, 'login-form-actions')]//input[@type='submit']")))
-    login_btn.click()
+    load_cookies()
 
-    time.sleep(2)
-    driver.save_screenshot("after_login_submit.png")
-
-    try_confirm_identity()
-
-    test_post_url = "https://ok.ru/group/70000033095519/post"
-    log.info(f"Проверка входа через переход: {test_post_url}")
-    driver.get(test_post_url)
-    time.sleep(5)
-
+    # Проверка авторизации через cookies
+    driver.get("https://ok.ru/group/70000033095519/post")
+    time.sleep(3)
     body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
-    log.info(f"Класс <body>: {body_class}")
 
     if "anonym" in body_class:
-        log.error("❌ Не авторизован. OK.ru перенаправил на страницу ошибки.")
-        driver.save_screenshot("not_logged_in.png")
-        sys.exit(1)
+        log.info("🔐 Авторизация через cookies не удалась. Переходим к ручному входу.")
+        driver.get("https://ok.ru/")
+        wait.until(EC.presence_of_element_located((By.NAME, "st.email"))).send_keys(EMAIL)
+        driver.find_element(By.NAME, "st.password").send_keys(PASSWORD)
 
-    log.info("✅ Пользователь авторизован. Доступ к постингу подтверждён.")
+        login_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//div[contains(@class, 'login-form-actions')]//input[@type='submit']")
+        ))
+        login_btn.click()
 
+        time.sleep(2)
+        driver.save_screenshot("after_login_submit.png")
+        try_confirm_identity()
+
+        # Проверка повторная
+        driver.get("https://ok.ru/group/70000033095519/post")
+        time.sleep(3)
+        body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
+        if "anonym" in body_class:
+            log.error("❌ Не удалось авторизоваться. Страница недоступна.")
+            driver.save_screenshot("not_logged_in.png")
+            sys.exit(1)
+
+        save_cookies()
+        log.info("✅ Авторизация выполнена и сохранена.")
+
+    else:
+        log.info("✅ Авторизация через cookies успешна.")
+
+    # Публикация постов
     with open("posts.csv", newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
@@ -115,7 +138,6 @@ try:
                 continue
 
             driver.get(group_post_url)
-            log.info(f"Перешли к публикации: {group_post_url}")
             time.sleep(5)
 
             try:
