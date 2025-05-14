@@ -35,6 +35,8 @@ jobs:
       env:
         OK_EMAIL: ${{ secrets.OK_EMAIL }}
         OK_PASSWORD: ${{ secrets.OK_PASSWORD }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_USER_ID: ${{ secrets.TELEGRAM_USER_ID }}
       run: |
         Xvfb :99 -screen 0 1920x1080x24 &
         export DISPLAY=:99
