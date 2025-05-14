@@ -1,6 +1,7 @@
 import csv
 import os
 import time
+import json
 import requests
 import logging
 import sys
@@ -8,7 +9,7 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException
 
 # Настройка логгера
 logging.basicConfig(
@@ -21,7 +22,6 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Получение логина/пароля из переменных окружения
 EMAIL = os.environ.get("OK_EMAIL")
 PASSWORD = os.environ.get("OK_PASSWORD")
 
@@ -29,12 +29,8 @@ if not EMAIL or not PASSWORD:
     log.error("❌ Переменные окружения OK_EMAIL и OK_PASSWORD не заданы.")
     sys.exit(1)
 
-log.info("Запуск бота...")
-log.info(f"EMAIL найден: {EMAIL[:3]}***")
-
-# Настройка браузера
 options = uc.ChromeOptions()
-options.add_argument('--headless=new')  # для CI можно оставить
+options.add_argument('--headless=new')
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
 options.add_argument('--disable-gpu')
@@ -42,7 +38,7 @@ options.add_argument('--window-size=1920,1080')
 options.add_argument('--start-maximized')
 options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
 
-log.info("Создаём undetected_chromedriver...")
+log.info("Запуск браузера...")
 driver = uc.Chrome(options=options)
 wait = WebDriverWait(driver, 20)
 
@@ -58,14 +54,48 @@ def download_video(url, filename):
         log.error(f"❌ Ошибка при загрузке видео: {e}")
         raise
 
-try:
-    # Вход в OK.RU
-    log.info("Открываем OK.RU...")
+def load_cookies():
+    if os.path.exists("cookies.json"):
+        log.info("🔄 Загрузка cookies...")
+        driver.get("https://ok.ru/")
+        with open("cookies.json", "r") as f:
+            cookies = json.load(f)
+        for cookie in cookies:
+            if 'sameSite' in cookie:
+                del cookie['sameSite']
+            driver.add_cookie(cookie)
+        driver.get("https://ok.ru/feed")
+        time.sleep(3)
+
+def save_cookies():
+    log.info("💾 Сохраняем cookies...")
+    with open("cookies.json", "w") as f:
+        json.dump(driver.get_cookies(), f)
+
+def try_confirm_identity():
+    try:
+        confirm_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//input[@value='Yes, confirm'] | //button[contains(text(), 'Yes, confirm')]")
+        ))
+        confirm_btn.click()
+        log.info("🔓 Подтверждение 'It’s you' пройдено.")
+        time.sleep(2)
+    except TimeoutException:
+        log.info("✅ Подтверждение не требовалось.")
+
+def login_if_needed():
     driver.get("https://ok.ru/")
+    time.sleep(3)
+    body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
+
+    if "anonym" not in body_class:
+        log.info("🔐 Уже авторизованы через cookies.")
+        return
+
+    log.info("🔑 Входим вручную...")
     wait.until(EC.presence_of_element_located((By.NAME, "st.email"))).send_keys(EMAIL)
     driver.find_element(By.NAME, "st.password").send_keys(PASSWORD)
 
-    log.info("Нажимаем кнопку входа...")
     login_btn = wait.until(EC.element_to_be_clickable(
         (By.XPATH, "//div[contains(@class, 'login-form-actions')]//input[@type='submit']")
     ))
@@ -73,24 +103,26 @@ try:
 
     time.sleep(2)
     driver.save_screenshot("after_login_submit.png")
+    try_confirm_identity()
 
-    # Проверка входа через попытку открыть форму постинга
-    test_post_url = "https://ok.ru/group/70000033095519/post"
-    log.info(f"Проверка входа через переход: {test_post_url}")
-    driver.get(test_post_url)
-    time.sleep(5)
-
+    # Проверка входа через переход на /post
+    test_url = "https://ok.ru/group/70000033095519/post"
+    driver.get(test_url)
+    time.sleep(3)
     body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
-    log.info(f"Класс <body>: {body_class}")
 
     if "anonym" in body_class:
-        log.error("❌ Не авторизован. OK.ru перенаправил на страницу ошибки.")
+        log.error("❌ Вход не удался. OK требует подтверждение.")
         driver.save_screenshot("not_logged_in.png")
         sys.exit(1)
 
-    log.info("✅ Пользователь авторизован. Доступ к постингу подтверждён.")
+    log.info("✅ Авторизация подтверждена.")
+    save_cookies()
 
-    # Чтение CSV и публикация постов
+try:
+    load_cookies()
+    login_if_needed()
+
     with open("posts.csv", newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
@@ -99,7 +131,7 @@ try:
             description = row.get('description')
 
             if not all([group_id, video_url, description]):
-                log.warning("⛔️ Пропущена строка CSV: отсутствуют обязательные поля.")
+                log.warning("⛔️ Пропущена строка CSV: отсутствуют поля.")
                 continue
 
             group_post_url = f"https://ok.ru/group/{group_id}/post"
@@ -112,7 +144,6 @@ try:
                 continue
 
             driver.get(group_post_url)
-            log.info(f"Перешли к публикации: {group_post_url}")
             time.sleep(5)
 
             try:
@@ -140,7 +171,7 @@ try:
                 time.sleep(5)
 
 except Exception as e:
-    log.exception(f"❌ Критическая ошибка выполнения скрипта: {e}")
+    log.exception(f"❌ Критическая ошибка: {e}")
     driver.save_screenshot("fatal_error.png")
 
 finally:
