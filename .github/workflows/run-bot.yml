@@ -21,18 +21,26 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install --upgrade pip
-        pip install -r requirements.txt
-
-    - name: Install Chrome and Chromedriver
-      run: |
         sudo apt-get update
         sudo apt-get install -y wget unzip xvfb           google-chrome-stable chromium-chromedriver
+        # Устанавливаем chromedriver для совместимости с текущим Chrome
+        CHROMEDRIVER_VERSION=$(curl -sS chromedriver.storage.googleapis.com/LATEST_RELEASE)
+        wget -N https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip
+        unzip chromedriver_linux64.zip -d $HOME/.chromedriver
+        sudo mv $HOME/.chromedriver/chromedriver /usr/local/bin/chromedriver
+        sudo chmod +x /usr/local/bin/chromedriver
+        google-chrome --version
+        chromedriver --version
 
     - name: Verify Chrome & Chromedriver
       run: |
         google-chrome --version
         chromedriver --version
+
+    - name: Install Python dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
 
     - name: Run bot
       env:
