@@ -21,7 +21,6 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Получение логина/пароля из переменных окружения
 EMAIL = os.environ.get("OK_EMAIL")
 PASSWORD = os.environ.get("OK_PASSWORD")
 
@@ -32,9 +31,8 @@ if not EMAIL or not PASSWORD:
 log.info("Запуск бота...")
 log.info(f"EMAIL найден: {EMAIL[:3]}***")
 
-# Настройка браузера
 options = uc.ChromeOptions()
-options.add_argument('--headless=new')  # для CI можно оставить; убери для локального запуска
+options.add_argument('--headless=new')  # Убери для отладки
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
 options.add_argument('--disable-gpu')
@@ -58,6 +56,18 @@ def download_video(url, filename):
         log.error(f"❌ Ошибка при загрузке видео: {e}")
         raise
 
+def try_confirm_identity():
+    try:
+        confirm_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//input[@value='Yes, confirm'] | //button[contains(text(), 'Yes, confirm')]")
+        ))
+        confirm_btn.click()
+        log.info("🔓 Подтверждение 'It’s you' пройдено.")
+        time.sleep(2)
+        driver.save_screenshot("after_confirm_identity.png")
+    except TimeoutException:
+        log.info("✅ Подтверждение 'It’s you' не требовалось.")
+
 try:
     # Вход в OK.RU
     log.info("Открываем OK.RU...")
@@ -67,27 +77,14 @@ try:
 
     log.info("Нажимаем кнопку входа...")
     login_btn = wait.until(EC.element_to_be_clickable(
-        (By.XPATH, "//div[contains(@class, 'login-form-actions')]//input[@type='submit']")
-    ))
+        (By.XPATH, "//div[contains(@class, 'login-form-actions')]//input[@type='submit']")))
     login_btn.click()
 
     time.sleep(2)
     driver.save_screenshot("after_login_submit.png")
 
-    # Обработка подтверждения "It's you"
-    try:
-        confirm_btn = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//input[@value='Yes, confirm'] | //button[contains(text(), 'Yes, confirm')]")
-        ))
-        driver.save_screenshot("before_confirm_click.png")
-        confirm_btn.click()
-        log.info("🔓 Подтверждение 'It’s you' пройдено.")
-        time.sleep(3)
-    except TimeoutException:
-        log.info("✅ Подтверждение не требовалось.")
+    try_confirm_identity()
 
-
-    # Проверка входа через попытку открыть форму постинга
     test_post_url = "https://ok.ru/group/70000033095519/post"
     log.info(f"Проверка входа через переход: {test_post_url}")
     driver.get(test_post_url)
@@ -103,7 +100,6 @@ try:
 
     log.info("✅ Пользователь авторизован. Доступ к постингу подтверждён.")
 
-    # Чтение CSV и публикация постов
     with open("posts.csv", newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
