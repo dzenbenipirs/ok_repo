@@ -74,6 +74,19 @@ try:
     time.sleep(2)
     driver.save_screenshot("after_login_submit.png")
 
+    # Обработка подтверждения "It's you"
+    try:
+        confirm_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//input[@value='Yes, confirm'] | //button[contains(text(), 'Yes, confirm')]")
+        ))
+        driver.save_screenshot("before_confirm_click.png")
+        confirm_btn.click()
+        log.info("🔓 Подтверждение 'It’s you' пройдено.")
+        time.sleep(3)
+    except TimeoutException:
+        log.info("✅ Подтверждение не требовалось.")
+
+
     # Проверка входа через попытку открыть форму постинга
     test_post_url = "https://ok.ru/group/70000033095519/post"
     log.info(f"Проверка входа через переход: {test_post_url}")
