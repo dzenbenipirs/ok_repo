@@ -22,12 +22,11 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# Чтение учётных данных
 EMAIL = os.environ.get("OK_EMAIL")
 PASSWORD = os.environ.get("OK_PASSWORD")
-
-# Telegram bot settings
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_USER_ID")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 if not EMAIL or not PASSWORD:
     log.error("❌ Переменные окружения OK_EMAIL и OK_PASSWORD не заданы.")
@@ -38,18 +37,16 @@ if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
     sys.exit(1)
 
 log.info("Запуск бота...")
-log.info(f"EMAIL найден: {EMAIL[:3]}***")
 
+# Настройка опций Chrome
 options = uc.ChromeOptions()
-options.add_argument('--headless=new')  # Убери для отладки
+options.add_argument('--headless=new')
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
 options.add_argument('--disable-gpu')
 options.add_argument('--window-size=1920,1080')
-options.add_argument('--start-maximized')
-options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
+options.add_argument(f"--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 
-log.info("Создаём undetected_chromedriver...")
 driver = uc.Chrome(options=options)
 wait = WebDriverWait(driver, 20)
 
@@ -70,7 +67,11 @@ def download_video(url, filename):
 def try_confirm_identity():
     try:
         confirm_btn = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//input[@value='Yes, confirm'] | //button[contains(text(), 'Yes, confirm')]")
+            (By.XPATH,
+             "//input[@value='Yes, confirm']"
+             "|//button[contains(., 'Yes, confirm')]"
+             "|//button[contains(., 'Да, это я')]"
+            )
         ))
         confirm_btn.click()
         log.info("🔓 Подтверждение 'It’s you' пройдено.")
@@ -81,33 +82,32 @@ def try_confirm_identity():
 
 
 def retrieve_sms_code_via_telegram(timeout=120, poll_interval=5):
-    """
-    Ожидаем SMS-код: пользователь вручную отправляет код боту.
-    Функция опрашивает getUpdates Telegram Bot API и возвращает первый найденный 4-6 значный код.
-    """
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     deadline = time.time() + timeout
     last_update_id = None
-
     log.info("⏳ Ожидание кода в Telegram...")
+
     while time.time() < deadline:
-        resp = requests.get(api_url, params={
-            'timeout': 0,
-            'offset': last_update_id
-        }).json()
+        try:
+            resp = requests.get(api_url, params={'timeout': 0, 'offset': last_update_id}).json()
+        except Exception as e:
+            log.warning(f"⚠️ Ошибка при запросе к Telegram API: {e}")
+            time.sleep(poll_interval)
+            continue
+
         if not resp.get('ok'):
-            log.warning("⚠️ Ошибка при getUpdates: %s", resp)
+            log.warning(f"⚠️ Некорректный ответ Telegram API: {resp}")
             time.sleep(poll_interval)
             continue
 
         for upd in resp.get('result', []):
             last_update_id = upd['update_id'] + 1
-            msg = upd.get('message')
+            msg = upd.get('message') or upd.get('edited_message')
             if not msg or str(msg['chat']['id']) != TELEGRAM_CHAT_ID:
                 continue
 
             text = msg.get('text', '')
-            match = re.search(r'(\d{4,6})', text)
+            match = re.search(r"(\d{4,6})", text)
             if match:
                 code = match.group(1)
                 log.info(f"📥 Принят код из Telegram: {code}")
@@ -115,41 +115,61 @@ def retrieve_sms_code_via_telegram(timeout=120, poll_interval=5):
 
         time.sleep(poll_interval)
 
-    log.error(f"❌ Не получили код в Telegram за {timeout} секунд")
+    log.error("❌ Не получили код в Telegram за отведённое время.")
     raise TimeoutException("SMS код не пришёл в Telegram")
 
 
 def try_sms_verification():
     try:
-        # 1) Запросить SMS-код
+        # ждем появления кнопки запроса SMS
+        sms_button = wait.until(EC.presence_of_element_located(
+            (By.XPATH,
+             "//button[contains(., 'Get code')]"
+             "|//input[@value='Get code']"
+             "|//button[contains(., 'Получить код')]"
+             "|//input[@value='Получить код']"
+            )
+        ))
+        driver.save_screenshot("sms_verification_page.png")
+
         get_code_btn = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//button[contains(., 'Get code')]")
+            (By.XPATH,
+             "//button[contains(., 'Get code')]"
+             "|//input[@value='Get code']"
+             "|//button[contains(., 'Получить код')]"
+             "|//input[@value='Получить код']"
+            )
         ))
         get_code_btn.click()
-        log.info("📲 Запрошен SMS-код через Get code")
+        log.info("📲 Запрошен SMS-код (кнопка Get code/Получить код)")
 
-        # 2) Ждём появления поля ввода OTP
+        # ждем появления поля для ввода кода
         code_input = wait.until(EC.presence_of_element_located(
-            (By.XPATH, "//input[@name='otp'] | //input[@type='text' and contains(@placeholder, 'код')]")
+            (By.XPATH,
+             "//input[@name='otp']"
+             "|//input[@type='text' and (contains(@placeholder, 'код') or contains(@placeholder, 'OTP'))]"
+            )
         ))
 
-        # 3) Получаем код из Telegram и вводим
         sms_code = retrieve_sms_code_via_telegram()
         code_input.send_keys(sms_code)
 
-        # 4) Подтверждаем ввод
         submit_btn = driver.find_element(
-            By.XPATH, "//button[contains(., 'Submit') or contains(., 'Подтвердить')]"
+            By.XPATH,
+            "//button[contains(., 'Submit')]"
+            "|//button[contains(., 'Подтвердить')]"
         )
         submit_btn.click()
-        log.info("✅ SMS-код введён успешно")
+        log.info("✅ SMS-код введён и подтверждён.")
         time.sleep(2)
-    except (TimeoutException, NoSuchElementException):
-        log.info("ℹ️ SMS-верификация не потребовалась или не найдена.")
+    except TimeoutException:
+        log.info("ℹ️ SMS-верификация не потребовалась или элемент не найден.")
+    except NoSuchElementException:
+        log.info("ℹ️ Не удалось найти элемент для SMS-верификации.")
 
 
+# Основной блок
 try:
-    # Вход в OK.RU
     log.info("Открываем OK.RU...")
     driver.get("https://ok.ru/")
     wait.until(EC.presence_of_element_located((By.NAME, "st.email"))).send_keys(EMAIL)
@@ -164,11 +184,12 @@ try:
     time.sleep(2)
     driver.save_screenshot("after_login_submit.png")
 
-    # Подтверждаем личность
+    # Обработка страницы "It's you"
     try_confirm_identity()
-    # Обработка SMS через Telegram
+    # Обработка SMS-верификации, если потребуется
     try_sms_verification()
 
+    # Проверка авторизации через прямую ссылку к постингу
     test_post_url = "https://ok.ru/group/70000033095519/post"
     log.info(f"Проверка входа через переход: {test_post_url}")
     driver.get(test_post_url)
@@ -184,6 +205,7 @@ try:
 
     log.info("✅ Пользователь авторизован. Доступ к постингу подтверждён.")
 
+    # Публикация видео из CSV
     with open("posts.csv", newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
