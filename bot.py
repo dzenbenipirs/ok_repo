@@ -5,9 +5,8 @@ import time
 import requests
 import logging
 import sys
-from selenium import webdriver
+import undetected_chromedriver.v2 as uc
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException
 
 # Настройка логгера (в начале)
@@ -31,14 +30,12 @@ if not EMAIL or not PASSWORD:
 log.info("Запуск бота...")
 log.info(f"EMAIL найден: {EMAIL[:3]}***")
 
-# Настройки браузера
-options = Options()
-options.headless = False
-log.info("Создаём ChromeDriver...")
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-log.info("Запускаем ChromeDriver...")
-driver = webdriver.Chrome(options=options)
+# Настройки браузера с undetected_chromedriver
+options = uc.ChromeOptions()
+options.headless = False  # Убираем headless для диагностики
+log.info("Создаём undetected_chromedriver...")
+log.info("Запускаем undetected_chromedriver...")
+driver = uc.Chrome(options=options)
 
 def download_video(url, filename):
     try:
