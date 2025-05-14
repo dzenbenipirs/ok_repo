@@ -27,7 +27,7 @@ PASSWORD = os.environ.get("OK_PASSWORD")
 
 # Telegram bot settings
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_USER_ID")
 
 if not EMAIL or not PASSWORD:
     log.error("❌ Переменные окружения OK_EMAIL и OK_PASSWORD не заданы.")
