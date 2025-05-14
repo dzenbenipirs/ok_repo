@@ -11,7 +11,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
-# Настройка логгера
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -38,7 +37,6 @@ options.add_argument('--window-size=1920,1080')
 options.add_argument('--start-maximized')
 options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
 
-log.info("Запуск браузера...")
 driver = uc.Chrome(options=options)
 wait = WebDriverWait(driver, 20)
 
@@ -54,6 +52,11 @@ def download_video(url, filename):
         log.error(f"❌ Ошибка при загрузке видео: {e}")
         raise
 
+def save_cookies():
+    log.info("💾 Сохраняем cookies...")
+    with open("cookies.json", "w") as f:
+        json.dump(driver.get_cookies(), f)
+
 def load_cookies():
     if os.path.exists("cookies.json"):
         log.info("🔄 Загрузка cookies...")
@@ -64,13 +67,14 @@ def load_cookies():
             if 'sameSite' in cookie:
                 del cookie['sameSite']
             driver.add_cookie(cookie)
-        driver.get("https://ok.ru/feed")
-        time.sleep(3)
 
-def save_cookies():
-    log.info("💾 Сохраняем cookies...")
-    with open("cookies.json", "w") as f:
-        json.dump(driver.get_cookies(), f)
+def is_logged_in():
+    driver.get("https://ok.ru/feed")
+    time.sleep(3)
+    body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
+    if "anonym" in body_class or "stub" in driver.page_source.lower():
+        return False
+    return True
 
 def try_confirm_identity():
     try:
@@ -85,11 +89,11 @@ def try_confirm_identity():
 
 def login_if_needed():
     driver.get("https://ok.ru/")
-    driver.save_screenshot("auth_page_initial.png")  # 📸 Скриншот начальной страницы
+    driver.save_screenshot("auth_page_initial.png")
     time.sleep(3)
-    body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
 
-    if "anonym" not in body_class:
+    load_cookies()
+    if is_logged_in():
         log.info("🔐 Уже авторизованы через cookies.")
         return
 
@@ -106,13 +110,8 @@ def login_if_needed():
     driver.save_screenshot("after_login_submit.png")
     try_confirm_identity()
 
-    test_url = "https://ok.ru/group/70000033095519/post"
-    driver.get(test_url)
-    time.sleep(3)
-    body_class = driver.find_element(By.TAG_NAME, "body").get_attribute("class")
-
-    if "anonym" in body_class:
-        log.error("❌ Вход не удался. OK требует подтверждение.")
+    if not is_logged_in():
+        log.error("❌ Вход не удался. OK требует подтверждение или cookies некорректны.")
         driver.save_screenshot("not_logged_in.png")
         sys.exit(1)
 
@@ -120,7 +119,6 @@ def login_if_needed():
     save_cookies()
 
 try:
-    load_cookies()
     login_if_needed()
 
     with open("posts.csv", newline='', encoding="utf-8") as csvfile:
@@ -149,7 +147,7 @@ try:
             try:
                 video_input = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='file']")))
                 video_input.send_keys(os.path.abspath(video_file))
-                log.info("🎮 Видео загружается...")
+                log.info("🎞️ Видео загружается...")
                 time.sleep(10)
 
                 desc_field = driver.find_element(By.XPATH, "//textarea")
