@@ -1,3 +1,4 @@
+
 name: Run OK Bot
 
 on:
@@ -26,8 +27,7 @@ jobs:
     - name: Install Chrome and Chromedriver
       run: |
         sudo apt-get update
-        sudo apt-get install -y wget unzip xvfb \
-          google-chrome-stable chromium-chromedriver
+        sudo apt-get install -y wget unzip xvfb           google-chrome-stable chromium-chromedriver
 
     - name: Verify Chrome & Chromedriver
       run: |
@@ -43,8 +43,8 @@ jobs:
         export DISPLAY=:99
         python bot.py
 
-    - name: Upload bot log (if failed)
-      if: failure()
+    - name: Upload bot log
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: bot-log
