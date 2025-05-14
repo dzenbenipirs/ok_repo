@@ -34,7 +34,7 @@ log.info(f"EMAIL найден: {EMAIL[:3]}***")
 
 # Настройка браузера
 options = uc.ChromeOptions()
-options.add_argument('--headless=new')  # для CI можно оставить; убери для локального запуска
+options.add_argument('--headless=new')  # для CI можно оставить
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
 options.add_argument('--disable-gpu')
@@ -94,9 +94,15 @@ try:
     with open("posts.csv", newline='', encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            group_post_url = row['group_post_url']
-            video_url = row['video_url']
-            description = row['description']
+            group_id = row.get('group_id')
+            video_url = row.get('video_url')
+            description = row.get('description')
+
+            if not all([group_id, video_url, description]):
+                log.warning("⛔️ Пропущена строка CSV: отсутствуют обязательные поля.")
+                continue
+
+            group_post_url = f"https://ok.ru/group/{group_id}/post"
             video_file = "video_temp.mp4"
 
             log.info(f"--- Публикация в группу: {group_post_url} ---")
