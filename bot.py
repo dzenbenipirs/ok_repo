@@ -33,9 +33,11 @@ log.info(f"EMAIL найден: {EMAIL[:3]}***")
 
 # Настройки браузера
 options = Options()
-options.add_argument("--headless")
+options.headless = False
+log.info("Создаём ChromeDriver...")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
+log.info("Запускаем ChromeDriver...")
 driver = webdriver.Chrome(options=options)
 
 def download_video(url, filename):
