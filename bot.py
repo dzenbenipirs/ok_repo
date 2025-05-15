@@ -62,9 +62,7 @@ wait = WebDriverWait(driver, 20)
 def try_confirm_identity():
     try:
         btn = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//input[@value='Yes, confirm']"
-            " | //button[contains(text(), 'Yes, confirm')]"
-            " | //button[contains(text(), 'Да, это я')]"
+            "//input[@value='Yes, confirm'] | //button[contains(text(), 'Yes, confirm')] | //button[contains(text(), 'Да, это я')]"
         )))
         btn.click()
         logger.info("🔓 'It’s you' пройдено.")
@@ -107,11 +105,11 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
 # --- Шаг запроса SMS-верификации ---
 def try_sms_verification():
     try:
-        # Убедимся, что текст-инструкция загружен
+        # Убедимся, что инструкция загрузилась
         wait.until(EC.presence_of_element_located((By.XPATH,
-            "//div[contains(normalize-space(.), 'With it, we can confirm that this is this your profile')]
+            "//div[contains(normalize-space(.), 'With it, we can confirm that this is this your profile. For this, we will send a code by free text message to the phone number indicated')]"
         )))
-        # Найдём кнопку Get code именно с этим текстом
+        # Найдём кнопку Get code с точным текстом
         btn = wait.until(EC.element_to_be_clickable((By.XPATH,
             "//*[self::button or self::a or self::div][normalize-space(text())='Get code']"
         )))
@@ -128,15 +126,14 @@ def try_sms_verification():
         )))
         driver.save_screenshot("sms_input_field.png")
 
-        # Получаем код и вводим
+        # Получаем и вводим код
         code = retrieve_sms_code()
         inp.send_keys(code)
         driver.save_screenshot("sms_code_entered.png")
 
         # Подтверждаем ввод
         ok = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//button[normalize-space(text())='Submit']"
-            " | //button[normalize-space(text())='Подтвердить']"
+            "//button[normalize-space(text())='Submit'] | //button[normalize-space(text())='Подтвердить']"
         )))
         ok.click()
         logger.info("✅ SMS-код подтверждён.")
