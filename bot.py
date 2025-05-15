@@ -111,43 +111,44 @@ def try_sms_verification():
     try:
         # 1) Запрос SMS-кода
         driver.save_screenshot("sms_verification_page.png")
-        send_sms_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+        get_code_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
             "//form[contains(@action,'AnonymUnblockConfirmPhone')]/div//input[@type='submit' and @value='Get code']"
         )))
-        send_sms_btn.click()
-        logger.info("📲 SMS-код запрошен.")
+        get_code_btn.click()
+        logger.info("📲 Нажата кнопка 'Get code', SMS-код запрошен.")
         driver.save_screenshot("sms_requested.png")
 
-        # 2) Ожидаем форму ввода кода
+        # 2) Ждём появления формы для ввода кода на той же странице
         wait.until(EC.presence_of_element_located((By.XPATH,
             "//form[contains(@action,'AnonymUnblockVerifyPhoneCodeOldPhone')]"
         )))
+        driver.save_screenshot("sms_form_loaded.png")
 
         # 3) Ждём поле ввода кода
         inp = wait.until(EC.presence_of_element_located((By.XPATH,
             "//input[@name='st.r.smsCode' and @id='smsCode']"
         )))
+        logger.info("📲 Скрипт ожидает SMS-код от пользователя через Telegram.")
         driver.save_screenshot("sms_input_field.png")
-        logger.info("📲 Скрипт ожидает SMS-код. Отправьте его в Telegram.")
 
-        # 4) Получаем и вводим код
+        # 4) Получаем и вводим код из Telegram
         code = retrieve_sms_code()
         inp.send_keys(code)
         driver.save_screenshot("sms_code_entered.png")
 
         # 5) Подтверждаем код (Next)
         next_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//input[@type='submit' and @value='Next']"
+            "//form[contains(@action,'AnonymUnblockVerifyPhoneCodeOldPhone')]//input[@type='submit' and @value='Next']"
         )))
         next_btn.click()
-        logger.info("✅ SMS-код введён и отправлен.")
+        logger.info("✅ SMS-код введён и отправлен (Next).")
         driver.save_screenshot("sms_confirmed.png")
     except TimeoutException:
         logger.error("❌ Не удалось найти форму или элементы SMS-верификации.")
     except Exception as e:
         logger.error(f"❌ Ошибка SMS-верификации: {e}")
 
-# Основной сценарий авторизации
+# Основной сценарий авторизации"ции
 def main():
     try:
         logger.info("Открываем OK.RU...")
