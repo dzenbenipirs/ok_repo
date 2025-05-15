@@ -74,44 +74,51 @@ def try_confirm_identity():
         logger.info("ℹ️ Страница 'It's you' не показана.")
 
 # 2) Получение SMS-кода
+# --- Получение SMS-кода из Telegram (с логом getUpdates) ---
 def retrieve_sms_code(poll_interval=5):
-    api = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    last = None
-
-    # Сначала «сбрасываем» все старые апдейты:
-    try:
-        init = requests.get(api, params={'timeout':0}).json()
-        if init.get('ok'):
-            res = init.get('result', [])
-            if res:
-                last = max(u['update_id'] for u in res) + 1
-    except Exception:
-        last = None
-
+    api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    last_update = None
     logger.info("⏳ Ожидание SMS-кода в Telegram... Отправьте код в этот чат.")
+
+    # Сбрасываем старые апдейты
+    try:
+        init = requests.get(api_url, params={'timeout': 0}).json()
+        if init.get('ok'):
+            ids = [u['update_id'] for u in init.get('result', [])]
+            if ids:
+                last_update = max(ids) + 1
+    except Exception:
+        last_update = None
+
     while True:
         try:
-            r = requests.get(api, params={'timeout':0, 'offset': last}).json()
+            resp = requests.get(api_url, params={'timeout': 0, 'offset': last_update}).json()
         except Exception as e:
             logger.warning(f"Ошибка Telegram API: {e}")
             time.sleep(poll_interval)
             continue
-        if not r.get('ok'):
+
+        # Логируем весь ответ, чтобы видеть, что реально приходит
+        logger.info(f"🔎 getUpdates вернул: {resp}")
+
+        if not resp.get('ok'):
             time.sleep(poll_interval)
             continue
 
-        for upd in r.get('result', []):
-            last = upd['update_id'] + 1
+        for upd in resp.get('result', []):
+            last_update = upd['update_id'] + 1
             msg = upd.get('message') or upd.get('edited_message')
             if not msg or str(msg['chat']['id']) != TELEGRAM_USER_ID:
                 continue
             text = msg.get('text', '')
-            m = re.search(r"(\d{4,6})", text)
-            if m:
-                code = m.group(1)
-                logger.info(f"✅ Получен код из Telegram: {code}")
+            match = re.search(r"(\d{4,6})", text)
+            if match:
+                code = match.group(1)
+                logger.info(f"✅ Найден код в сообщении: {text!r} → {code}")
                 return code
+
         time.sleep(poll_interval)
+
 
 # 3) Запрос и ввод SMS-кода
 def try_sms_verification():
