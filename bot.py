@@ -14,7 +14,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 EMAIL = os.environ.get("OK_EMAIL")
 PASSWORD = os.environ.get("OK_PASSWORD")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_USER_ID")
 
 if not all([EMAIL, PASSWORD, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]):
     print("❌ Не заданы необходимые переменные окружения: OK_EMAIL, OK_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.")
