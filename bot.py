@@ -37,12 +37,14 @@ class TelegramHandler(logging.Handler):
 logger = logging.getLogger("okru_auth")
 logger.setLevel(logging.INFO)
 formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+# Консольный логгер
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
-telegram_handler = TelegramHandler(TELEGRAM_TOKEN, TELEGRAM_USER_ID)
-telegram_handler.setFormatter(formatter)
-logger.addHandler(telegram_handler)
+# Telegram-логгер
+tg_handler = TelegramHandler(TELEGRAM_TOKEN, TELEGRAM_USER_ID)
+tg_handler.setFormatter(formatter)
+logger.addHandler(tg_handler)
 
 # Инициализация WebDriver
 options = uc.ChromeOptions()
@@ -67,53 +69,39 @@ def try_confirm_identity():
     except Exception:
         logger.info("ℹ️ Страница 'It's you' не показана.")
 
-# Шаг 2: Получение и вывод всех сообщений из Telegram (для отладки)
+# Отладочный вывод всех сообщений из Telegram
+
 def debug_print_updates():
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     try:
-        resp = requests.get(api_url, params={'timeout': 0}).json()
+        resp = requests.get(api_url, params={'timeout':0}).json()
         logger.info(f"📨 Все сообщения в чате: {resp}")
     except Exception as e:
         logger.error(f"⚠️ Ошибка получения getUpdates: {e}")
 
-# Шаг 3: Запрос кода и отладка получения из Telegram
+# Шаг 2: Запрос SMS-кода и отладка получения сообщений
+
 def try_sms_verification():
     try:
-        # 3.1) Ждём и кликаем 'Get code'
+        # Нажимаем «Get code»
         driver.save_screenshot("sms_verification_page.png")
-        get_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+        btn = wait.until(EC.element_to_be_clickable((By.XPATH,
             "//input[@type='submit' and @value='Get code']"
         )))
-        get_btn.click()
-        logger.info("📲 'Get code' нажат, SMS запрошен.")
+        btn.click()
+        logger.info("📲 'Get code' нажат, SMS-код запрошен.")
         driver.save_screenshot("sms_requested.png")
 
-        # 3.2) Ждём форму ввода кода
-        logger.info("🔄 Ожидаю форму ввода SMS-кода...")
-        while True:
-            try:
-                form = driver.find_element(By.XPATH,
-                    "//div[@class='ext-registration_cnt']//form[contains(@action,'AnonymUnblockVerifyPhoneCodeOldPhone')]"
-                )
-                inp = form.find_element(By.ID, "smsCode")
-                if inp.is_displayed():
-                    driver.save_screenshot("sms_input_field.png")
-                    logger.info("👀 Поле для кода появилось.")
-                    break
-            except NoSuchElementException:
-                pass
-            time.sleep(1)
-
-        # 3.3) Отладочный вывод всех сообщений из Telegram
+        # Сразу выводим все апдейты из Telegram
         debug_print_updates()
 
-        # Завершаем скрипт после вывода сообщений
-        logger.info("🛑 Завершаю после вывода всех сообщений for debugging.")
+        # Завершаем скрипт для отладки
+        logger.info("🛑 Завершение скрипта после вывода сообщений.")
         driver.quit()
         sys.exit(0)
 
     except Exception as e:
-        logger.error(f"❌ Проблема при запросе SMS или отладке: {e}")
+        logger.error(f"❌ Проблема при запросе SMS: {e}")
         driver.quit()
         sys.exit(1)
 
@@ -124,18 +112,18 @@ def main():
         driver.get("https://ok.ru/")
         driver.save_screenshot("login_page.png")
 
-        # Логин и пароль
+        # Ввод Email и пароля
         wait.until(EC.presence_of_element_located((By.NAME,'st.email'))).send_keys(EMAIL)
         driver.find_element(By.NAME,'st.password').send_keys(PASSWORD)
         driver.save_screenshot("credentials_entered.png")
 
-        # Отправляем форму
+        # Отправка формы входа
         logger.info("🔑 Отправляю форму логина...")
         driver.find_element(By.XPATH,"//input[@type='submit']").click()
         time.sleep(2)
         driver.save_screenshot("after_login_submit.png")
 
-        # Identity + SMS отладка
+        # Подтверждение identity и отладка SMS
         try_confirm_identity()
         try_sms_verification()
 
