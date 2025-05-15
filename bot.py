@@ -109,46 +109,40 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
 # Запрос и ввод SMS-кода
 def try_sms_verification():
     try:
-        # 1) Запрос SMS-кода
+        # Ожидание кнопки input[type=submit][value='Get code']
         driver.save_screenshot("sms_verification_page.png")
         get_code_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//form[contains(@action,'AnonymUnblockConfirmPhone')]/div//input[@type='submit' and @value='Get code']"
+            "//input[@type='submit' and @value='Get code']"
         )))
         get_code_btn.click()
         logger.info("📲 Нажата кнопка 'Get code', SMS-код запрошен.")
         driver.save_screenshot("sms_requested.png")
 
-        # 2) Ждём появления формы для ввода кода на той же странице
-        wait.until(EC.presence_of_element_located((By.XPATH,
-            "//form[contains(@action,'AnonymUnblockVerifyPhoneCodeOldPhone')]"
-        )))
-        driver.save_screenshot("sms_form_loaded.png")
-
-        # 3) Ждём поле ввода кода
+        # Ожидание поля ввода кода
         inp = wait.until(EC.presence_of_element_located((By.XPATH,
-            "//input[@name='st.r.smsCode' and @id='smsCode']"
+            "//input[@name='otp'] | //input[contains(@placeholder, 'код')]"
         )))
-        logger.info("📲 Скрипт ожидает SMS-код от пользователя через Telegram.")
+        logger.info("📲 Скрипт ожидает SMS-код. Отправьте его боту.")
         driver.save_screenshot("sms_input_field.png")
 
-        # 4) Получаем и вводим код из Telegram
+        # Получение и ввод кода
         code = retrieve_sms_code()
         inp.send_keys(code)
         driver.save_screenshot("sms_code_entered.png")
 
-        # 5) Подтверждаем код (Next)
-        next_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//form[contains(@action,'AnonymUnblockVerifyPhoneCodeOldPhone')]//input[@type='submit' and @value='Next']"
+        # Подтверждение кода
+        ok_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+            "//input[@type='submit' and @value='Submit'] | //button[normalize-space(text())='Submit'] | //button[normalize-space(text())='Подтвердить']"
         )))
-        next_btn.click()
-        logger.info("✅ SMS-код введён и отправлен (Next).")
+        ok_btn.click()
+        logger.info("✅ SMS-код подтверждён.")
         driver.save_screenshot("sms_confirmed.png")
     except TimeoutException:
-        logger.error("❌ Не удалось найти форму или элементы SMS-верификации.")
+        logger.error("❌ Не найдена кнопка 'Get code' или поле ввода кода.")
     except Exception as e:
         logger.error(f"❌ Ошибка SMS-верификации: {e}")
 
-# Основной сценарий авторизации"ции
+# Основной сценарий авторизации
 def main():
     try:
         logger.info("Открываем OK.RU...")
