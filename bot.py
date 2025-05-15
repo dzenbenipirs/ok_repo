@@ -73,7 +73,7 @@ def try_confirm_identity():
         logger.info("ℹ️ Страница 'It's you' не показана.")
 
 # Получение SMS-кода из Telegram
- def retrieve_sms_code(timeout=300, poll_interval=5):
+def retrieve_sms_code(timeout=300, poll_interval=5):timeout=300, poll_interval=5):
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     deadline = time.time() + timeout
     last_update = None
@@ -103,7 +103,7 @@ def try_confirm_identity():
     raise TimeoutException("Не получен SMS-код из Telegram")
 
 # Запрос SMS и ожидание ввода кода
- def try_sms_verification():
+def try_sms_verification():):
     try:
         # Рабочий базовый шаг: нажатие Get code
         driver.save_screenshot("sms_verification_page.png")
