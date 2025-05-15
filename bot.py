@@ -30,10 +30,7 @@ class TelegramHandler(logging.Handler):
     def emit(self, record):
         log_entry = self.format(record)
         try:
-            requests.post(
-                self.api_url,
-                data={"chat_id": self.chat_id, "text": log_entry}
-            )
+            requests.post(self.api_url, data={"chat_id": self.chat_id, "text": log_entry})
         except Exception:
             pass
 
@@ -45,7 +42,6 @@ formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
-
 # Telegram-логгер
 tg_handler = TelegramHandler(TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
 tg_handler.setFormatter(formatter)
@@ -88,12 +84,14 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
             logger.warning(f"Ошибка при запросе к Telegram: {e}")
             time.sleep(poll_interval)
             continue
-        if not resp.get('ok'): time.sleep(poll_interval); continue
-
+        if not resp.get('ok'):
+            time.sleep(poll_interval)
+            continue
         for upd in resp.get('result', []):
             last_update = upd['update_id'] + 1
             msg = upd.get('message') or upd.get('edited_message')
-            if not msg or str(msg['chat']['id']) != TELEGRAM_CHAT_ID: continue
+            if not msg or str(msg['chat']['id']) != TELEGRAM_CHAT_ID:
+                continue
             text = msg.get('text', '')
             m = re.search(r"(\d{4,6})", text)
             if m:
@@ -106,40 +104,41 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
 
 def try_sms_verification():
     try:
-        # Ожидание кнопки Get code
-        btn = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//button[contains(., 'Get code')] | //button[contains(., 'Получить код')]"
+        # ждем заголовок страницы
+        wait.until(EC.presence_of_element_located((By.XPATH,
+            "//h2[contains(normalize-space(.), 'Get verification code')]"
         )))
-        btn.click()
-        logger.info("📲 Запрошен SMS-код (Get code).")
+        # находим и кликаем кнопку с точным текстом 'Get code'
+        get_code_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+            "//*[self::button or self::a or self::div][normalize-space(text())='Get code']"
+        )))
+        get_code_btn.click()
+        logger.info("📲 Запрошен SMS-код (Get code)")
         driver.save_screenshot("sms_requested.png")
 
-        # Уведомление в Telegram
+        # уведомление и ожидание поля ввода
         logger.info("📲 Жду SMS-код. Отправьте его боту в Telegram.")
-
-        # Ожидание поля ввода OTP
         inp = wait.until(EC.presence_of_element_located((By.XPATH,
             "//input[@name='otp'] | //input[contains(@placeholder,'код')]"
         )))
         driver.save_screenshot("sms_input_field.png")
 
-        # Получаем и вводим код
+        # ввод кода
         code = retrieve_sms_code()
         inp.send_keys(code)
         driver.save_screenshot("sms_code_entered.png")
 
-        # Подтверждение
+        # подтверждение кода
         ok_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//button[contains(., 'Submit')] | //button[contains(., 'Подтвердить')]"
+            "//button[normalize-space(text())='Submit'] | //button[normalize-space(text())='Подтвердить']"
         )))
         ok_btn.click()
         logger.info("✅ SMS-код подтвержден.")
         driver.save_screenshot("sms_confirmed.png")
     except TimeoutException:
-        logger.error("❌ Не удалось найти элементы SMS-верификации.")
+        logger.error("❌ Не удалось найти кнопку Get code или поле ввода кода.")
     except Exception as e:
         logger.error(f"❌ Ошибка SMS-верификации: {e}")
-
 
 # Основной сценарий
 try:
