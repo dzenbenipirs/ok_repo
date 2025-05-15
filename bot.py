@@ -67,65 +67,35 @@ def try_confirm_identity():
     except Exception:
         logger.info("ℹ️ Страница 'It's you' не показана.")
 
-# Шаг 2: Получение SMS-кода из Telegram (с логом getUpdates)
-def retrieve_sms_code(poll_interval=5):
+# Шаг 2: Получение и вывод всех сообщений из Telegram (для отладки)
+def debug_print_updates():
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    last_update = None
-    logger.info("⏳ Ожидание SMS-кода из Telegram... Отправьте код в этот чат.")
-    # сброс старых апдейтов
     try:
-        init = requests.get(api_url, params={'timeout':0}).json()
-        if init.get('ok'):
-            ids = [u['update_id'] for u in init.get('result', [])]
-            if ids:
-                last_update = max(ids) + 1
-    except Exception:
-        last_update = None
+        resp = requests.get(api_url, params={'timeout': 0}).json()
+        logger.info(f"📨 Все сообщения в чате: {resp}")
+    except Exception as e:
+        logger.error(f"⚠️ Ошибка получения getUpdates: {e}")
 
-    while True:
-        try:
-            resp = requests.get(api_url, params={'timeout':0,'offset':last_update}).json()
-        except Exception as e:
-            logger.warning(f"Ошибка Telegram API: {e}")
-            time.sleep(poll_interval)
-            continue
-        logger.info(f"🔎 getUpdates вернул: {resp}")
-        if not resp.get('ok'):
-            time.sleep(poll_interval)
-            continue
-        for upd in resp.get('result', []):
-            last_update = upd['update_id'] + 1
-            msg = upd.get('message') or upd.get('edited_message')
-            if not msg or str(msg['chat']['id']) != TELEGRAM_USER_ID:
-                continue
-            text = msg.get('text','')
-            m = re.search(r"(\d{4,6})", text)
-            if m:
-                code = m.group(1)
-                logger.info(f"✅ Найден код в сообщении: {text!r} → {code}")
-                return code
-        time.sleep(poll_interval)
-
-# Шаг 3: Запрос и ввод SMS-кода
+# Шаг 3: Запрос кода и отладка получения из Telegram
 def try_sms_verification():
     try:
-        # Запрос «Get code»
+        # 3.1) Ждём и кликаем 'Get code'
         driver.save_screenshot("sms_verification_page.png")
-        btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+        get_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
             "//input[@type='submit' and @value='Get code']"
         )))
-        btn.click()
-        logger.info("📲 'Get code' нажат, SMS-код запрошен.")
+        get_btn.click()
+        logger.info("📲 'Get code' нажат, SMS запрошен.")
         driver.save_screenshot("sms_requested.png")
 
-        # Ожидание формы ввода кода
+        # 3.2) Ждём форму ввода кода
         logger.info("🔄 Ожидаю форму ввода SMS-кода...")
         while True:
             try:
                 form = driver.find_element(By.XPATH,
                     "//div[@class='ext-registration_cnt']//form[contains(@action,'AnonymUnblockVerifyPhoneCodeOldPhone')]"
                 )
-                inp = form.find_element(By.ID,"smsCode")
+                inp = form.find_element(By.ID, "smsCode")
                 if inp.is_displayed():
                     driver.save_screenshot("sms_input_field.png")
                     logger.info("👀 Поле для кода появилось.")
@@ -134,22 +104,18 @@ def try_sms_verification():
                 pass
             time.sleep(1)
 
-        # Получение и ввод кода
-        code = retrieve_sms_code()
-        inp.clear()
-        inp.send_keys(code)
-        logger.info(f"✍️ Код введён: {code}")
-        driver.save_screenshot("sms_code_entered.png")
+        # 3.3) Отладочный вывод всех сообщений из Telegram
+        debug_print_updates()
 
-        # Подтверждение (Next)
-        next_btn = form.find_element(By.XPATH,
-            ".//input[@type='submit' and @value='Next']"
-        )
-        next_btn.click()
-        logger.info("✅ Код подтверждён, нажал 'Next'.")
-        driver.save_screenshot("sms_confirmed.png")
+        # Завершаем скрипт после вывода сообщений
+        logger.info("🛑 Завершаю после вывода всех сообщений for debugging.")
+        driver.quit()
+        sys.exit(0)
+
     except Exception as e:
-        logger.error(f"❌ Проблема с SMS-верификацией: {e}")
+        logger.error(f"❌ Проблема при запросе SMS или отладке: {e}")
+        driver.quit()
+        sys.exit(1)
 
 # Основной сценарий авторизации
 def main():
@@ -158,20 +124,21 @@ def main():
         driver.get("https://ok.ru/")
         driver.save_screenshot("login_page.png")
 
-        # Email и пароль
+        # Логин и пароль
         wait.until(EC.presence_of_element_located((By.NAME,'st.email'))).send_keys(EMAIL)
         driver.find_element(By.NAME,'st.password').send_keys(PASSWORD)
         driver.save_screenshot("credentials_entered.png")
 
-        # Вход
+        # Отправляем форму
         logger.info("🔑 Отправляю форму логина...")
         driver.find_element(By.XPATH,"//input[@type='submit']").click()
         time.sleep(2)
         driver.save_screenshot("after_login_submit.png")
 
-        # Identity и SMS
+        # Identity + SMS отладка
         try_confirm_identity()
         try_sms_verification()
+
         logger.info("🎉 Авторизация завершена.")
     except Exception as ex:
         logger.error(f"🔥 Критическая ошибка: {ex}")
