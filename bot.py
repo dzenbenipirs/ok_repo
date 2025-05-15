@@ -14,7 +14,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 EMAIL = os.environ.get("OK_EMAIL")
 PASSWORD = os.environ.get("OK_PASSWORD")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_USER_ID = os.environ.get("TELEGRAM_USER_ID")  # переименовано
+TELEGRAM_USER_ID = os.environ.get("TELEGRAM_USER_ID")
 
 if not all([EMAIL, PASSWORD, TELEGRAM_TOKEN, TELEGRAM_USER_ID]):
     print("❌ Задайте OK_EMAIL, OK_PASSWORD, TELEGRAM_BOT_TOKEN и TELEGRAM_USER_ID.")
@@ -73,15 +73,15 @@ def try_confirm_identity():
     except TimeoutException:
         logger.info("ℹ️ Страница 'It's you' не показана.")
 
-# Получение SMS-кода из Telegram
-
-def retrieve_sms_code(timeout=120, poll_interval=5):
+# Получение SMS-кода из Telegram (без таймаута)
+def retrieve_sms_code(poll_interval=5):
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    deadline = time.time() + timeout
     last_update = None
-    logger.info("⏳ Ожидание SMS-кода...")
+    logger.info("⏳ Ожидание SMS-кода в Telegram (без ограничений)...")
+    # Оповестим пользователя, что ждём код
+    logger.info("📲 Пожалуйста, пришлите код в этот чат Telegram.")
 
-    while time.time() < deadline:
+    while True:
         try:
             resp = requests.get(api_url, params={'timeout': 0, 'offset': last_update}).json()
         except Exception as e:
@@ -101,44 +101,50 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
             m = re.search(r"(\d{4,6})", text)
             if m:
                 code = m.group(1)
-                logger.info(f"📥 Код получен: {code}")
+                logger.info(f"✅ Получен код: {code}")
                 return code
         time.sleep(poll_interval)
-    raise TimeoutException("Не получен SMS-код в Telegram")
 
 # Запрос и ввод SMS-кода
 def try_sms_verification():
     try:
-        # Ожидание кнопки input[type=submit][value='Get code']
+        # 1) Запрос SMS-кода
         driver.save_screenshot("sms_verification_page.png")
         get_code_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+            "//form[contains(@action,'AnonymUnblockConfirmPhone')]") +
             "//input[@type='submit' and @value='Get code']"
-        )))
+        ))
         get_code_btn.click()
         logger.info("📲 Нажата кнопка 'Get code', SMS-код запрошен.")
         driver.save_screenshot("sms_requested.png")
 
-        # Ожидание поля ввода кода
-        inp = wait.until(EC.presence_of_element_located((By.XPATH,
-            "//input[@name='otp'] | //input[contains(@placeholder, 'код')]"
+        # 2) Ждём появления формы ввода кода на той же странице
+        wait.until(EC.presence_of_element_located((By.XPATH,
+            "//form[contains(@action,'AnonymUnblockVerifyPhoneCodeOldPhone')]"
         )))
-        logger.info("📲 Скрипт ожидает SMS-код. Отправьте его боту.")
+        driver.save_screenshot("sms_form_loaded.png")
+
+        # 3) Ждём поле ввода кода
+        inp = wait.until(EC.presence_of_element_located((By.XPATH,
+            "//input[@name='st.r.smsCode' and @id='smsCode']"
+        )))
+        logger.info("📲 Скрипт ожидает SMS-код от пользователя.")
         driver.save_screenshot("sms_input_field.png")
 
-        # Получение и ввод кода
+        # 4) Получаем и вводим код из Telegram
         code = retrieve_sms_code()
         inp.send_keys(code)
         driver.save_screenshot("sms_code_entered.png")
 
-        # Подтверждение кода
-        ok_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//input[@type='submit' and @value='Submit'] | //button[normalize-space(text())='Submit'] | //button[normalize-space(text())='Подтвердить']"
+        # 5) Подтверждаем код (Next)
+        next_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+            "//form[contains(@action,'AnonymUnblockVerifyPhoneCodeOldPhone')]//input[@type='submit' and @value='Next']"
         )))
-        ok_btn.click()
-        logger.info("✅ SMS-код подтверждён.")
+        next_btn.click()
+        logger.info("✅ SMS-код введён и отправлен (Next).")
         driver.save_screenshot("sms_confirmed.png")
-    except TimeoutException:
-        logger.error("❌ Не найдена кнопка 'Get code' или поле ввода кода.")
+    except (TimeoutException, NoSuchElementException) as e:
+        logger.error(f"❌ Не удалось найти форму или элементы для SMS-верификации: {e}")
     except Exception as e:
         logger.error(f"❌ Ошибка SMS-верификации: {e}")
 
