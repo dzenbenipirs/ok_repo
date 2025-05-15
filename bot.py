@@ -14,13 +14,13 @@ from selenium.common.exceptions import NoSuchElementException
 EMAIL = os.environ.get("OK_EMAIL")
 PASSWORD = os.environ.get("OK_PASSWORD")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_USER_ID = os.environ.get("TELEGRAM_USER_ID")
+TELEGRAM_USER_ID = os.environ.get("TELEGRAM_USER_ID")  # теперь именно USER_ID
 
 if not all([EMAIL, PASSWORD, TELEGRAM_TOKEN, TELEGRAM_USER_ID]):
     print("❌ Задайте OK_EMAIL, OK_PASSWORD, TELEGRAM_BOT_TOKEN и TELEGRAM_USER_ID.")
     sys.exit(1)
 
-# Настройка логгера с отправкой сообщений в Telegram
+# Логирование в консоль и Telegram
 class TelegramHandler(logging.Handler):
     def __init__(self, token, chat_id):
         super().__init__()
@@ -28,47 +28,44 @@ class TelegramHandler(logging.Handler):
         self.chat_id = chat_id
 
     def emit(self, record):
-        payload = {"chat_id": self.chat_id, "text": self.format(record)}
         try:
-            requests.post(self.api_url, data=payload)
+            requests.post(self.api_url, data={
+                "chat_id": self.chat_id,
+                "text": self.format(record)
+            })
         except Exception:
             pass
 
 logger = logging.getLogger("okru_auth")
 logger.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+# Консоль
+ch = logging.StreamHandler(sys.stdout)
+ch.setFormatter(fmt)
+logger.addHandler(ch)
+# Telegram
+tg = TelegramHandler(TELEGRAM_TOKEN, TELEGRAM_USER_ID)
+tg.setFormatter(fmt)
+logger.addHandler(tg)
 
-# Консольный логгер
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
-
-# Telegram-логгер
-tg_handler = TelegramHandler(TELEGRAM_TOKEN, TELEGRAM_USER_ID)
-tg_handler.setFormatter(formatter)
-logger.addHandler(tg_handler)
-
-# Инициализация WebDriver
-def init_driver():
-    opts = uc.ChromeOptions()
-    opts.add_argument('--headless=new')
-    opts.add_argument('--no-sandbox')
-    opts.add_argument('--disable-dev-shm-usage')
-    opts.add_argument('--disable-gpu')
-    opts.add_argument('--window-size=1920,1080')
-    return uc.Chrome(options=opts)
-
-driver = init_driver()
+# Запуск Chrome
+opts = uc.ChromeOptions()
+opts.add_argument('--headless=new')
+opts.add_argument('--no-sandbox')
+opts.add_argument('--disable-dev-shm-usage')
+opts.add_argument('--disable-gpu')
+opts.add_argument('--window-size=1920,1080')
+driver = uc.Chrome(options=opts)
 wait = WebDriverWait(driver, 20)
 
-# Подтверждение "It's you"
+# 1) «It's you»
 def try_confirm_identity():
     try:
-        btn = wait.until(
-            EC.element_to_be_clickable((By.XPATH,
-                "//input[@value='Yes, confirm'] | //button[contains(text(), 'Yes, confirm')] | //button[contains(text(), 'Да, это я')]"
-            ))
-        )
+        btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+            "//input[@value='Yes, confirm']"
+            " | //button[contains(text(),'Yes, confirm')]"
+            " | //button[contains(text(),'Да, это я')]"
+        )))
         btn.click()
         logger.info("🔓 'It's you' подтверждено.")
         driver.save_screenshot("after_confirm_identity.png")
@@ -76,23 +73,35 @@ def try_confirm_identity():
     except Exception:
         logger.info("ℹ️ Страница 'It's you' не показана.")
 
-# Получение SMS-кода из Telegram (ожидание без таймаута)
+# 2) Получение SMS-кода
 def retrieve_sms_code(poll_interval=5):
-    api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    last_update = None
-    logger.info("⏳ Ожидание SMS-кода из Telegram... Отправьте код в этот чат.")
+    api = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    last = None
+
+    # Сначала «сбрасываем» все старые апдейты:
+    try:
+        init = requests.get(api, params={'timeout':0}).json()
+        if init.get('ok'):
+            res = init.get('result', [])
+            if res:
+                last = max(u['update_id'] for u in res) + 1
+    except Exception:
+        last = None
+
+    logger.info("⏳ Ожидание SMS-кода в Telegram... Отправьте код в этот чат.")
     while True:
         try:
-            resp = requests.get(api_url, params={'timeout': 0, 'offset': last_update}).json()
+            r = requests.get(api, params={'timeout':0, 'offset': last}).json()
         except Exception as e:
             logger.warning(f"Ошибка Telegram API: {e}")
             time.sleep(poll_interval)
             continue
-        if not resp.get('ok'):
+        if not r.get('ok'):
             time.sleep(poll_interval)
             continue
-        for upd in resp.get('result', []):
-            last_update = upd['update_id'] + 1
+
+        for upd in r.get('result', []):
+            last = upd['update_id'] + 1
             msg = upd.get('message') or upd.get('edited_message')
             if not msg or str(msg['chat']['id']) != TELEGRAM_USER_ID:
                 continue
@@ -104,72 +113,75 @@ def retrieve_sms_code(poll_interval=5):
                 return code
         time.sleep(poll_interval)
 
-# Запрос 'Get code' и ожидание ввода кода пользователем
+# 3) Запрос и ввод SMS-кода
 def try_sms_verification():
     try:
-        # Нажимаем кнопку 'Get code'
+        # 3.1) Нажимаем «Get code»
         driver.save_screenshot("sms_verification_page.png")
-        get_btn = wait.until(
-            EC.element_to_be_clickable((By.XPATH,
-                "//input[@type='submit' and @value='Get code']"
-            ))
-        )
-        get_btn.click()
+        btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+            "//input[@type='submit' and @value='Get code']"
+        )))
+        btn.click()
         logger.info("📲 'Get code' нажат, SMS-код запрошен.")
         driver.save_screenshot("sms_requested.png")
 
-        # Ждём появления формы и поля ввода
-        logger.info("🔄 Ожидаю форму ввода SMS-кода...")
+        # 3.2) Ждём появления формы ввода…
+        logger.info("🔄 Ожидаю форму ввода SMS-кода…")
         while True:
             try:
-                form = driver.find_element(By.XPATH, "//div[@class='ext-registration_cnt']//form[contains(@action,'AnonymUnblockVerifyPhoneCodeOldPhone')]")
+                form = driver.find_element(By.XPATH,
+                    "//div[@class='ext-registration_cnt']//form[contains(@action,'AnonymUnblockVerifyPhoneCodeOldPhone')]"
+                )
                 inp = form.find_element(By.ID, "smsCode")
                 if inp.is_displayed():
-                    logger.info("👀 Поле ввода кода появилось.")
+                    logger.info("👀 Поле для кода появилось.")
                     driver.save_screenshot("sms_input_field.png")
                     break
             except NoSuchElementException:
                 pass
             time.sleep(1)
 
-        # Дожидаемся кода и вводим
+        # 3.3) Дожидаемся кода из Telegram
         code = retrieve_sms_code()
         inp.clear()
         inp.send_keys(code)
-        logger.info("✍️ Код введен: %s", code)
+        logger.info(f"✍️ Код введён: {code}")
         driver.save_screenshot("sms_code_entered.png")
 
-        # Нажимаем 'Next'
-        next_btn = form.find_element(By.XPATH, ".//input[@type='submit' and @value='Next']")
+        # 3.4) Нажимаем «Next»
+        next_btn = form.find_element(By.XPATH,
+            ".//input[@type='submit' and @value='Next']"
+        )
         next_btn.click()
-        logger.info("✅ Код отправлен, нажал Next.")
+        logger.info("✅ Код подтверждён, нажал 'Next'.")
         driver.save_screenshot("sms_confirmed.png")
+
     except Exception as e:
         logger.error(f"❌ Проблема с SMS-верификацией: {e}")
 
-# Основной сценарий авторизации
+# Основной сценарий
 def main():
     try:
         logger.info("🚀 Открываю OK.RU...")
         driver.get("https://ok.ru/")
         driver.save_screenshot("login_page.png")
 
-        # Ввод учётных данных
-        wait.until(EC.presence_of_element_located((By.NAME, 'st.email'))).send_keys(EMAIL)
-        driver.find_element(By.NAME, 'st.password').send_keys(PASSWORD)
+        # Ввод учётных
+        wait.until(EC.presence_of_element_located((By.NAME,'st.email'))).send_keys(EMAIL)
+        driver.find_element(By.NAME,'st.password').send_keys(PASSWORD)
         driver.save_screenshot("credentials_entered.png")
 
-        # Отправка формы логина
-        logger.info("🔑 Отправляю форму логина...")
-        driver.find_element(By.XPATH, "//input[@type='submit']").click()
+        # Входим
+        logger.info("🔑 Отправляю форму входа...")
+        driver.find_element(By.XPATH,"//input[@type='submit']").click()
         time.sleep(2)
         driver.save_screenshot("after_login_submit.png")
 
-        # Подтверждение личности и SMS
+        # Подтвердить identity + SMS
         try_confirm_identity()
         try_sms_verification()
-
         logger.info("🎉 Авторизация завершена.")
+
     except Exception as ex:
         logger.error(f"🔥 Критическая ошибка: {ex}")
         driver.save_screenshot("fatal_error.png")
