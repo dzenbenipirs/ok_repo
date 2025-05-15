@@ -14,13 +14,13 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 EMAIL = os.environ.get("OK_EMAIL")
 PASSWORD = os.environ.get("OK_PASSWORD")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_USER_ID = os.environ.get("TELEGRAM_USER_ID")  # заменено на TELEGRAM_USER_ID
+TELEGRAM_USER_ID = os.environ.get("TELEGRAM_USER_ID")  # переименовано
 
 if not all([EMAIL, PASSWORD, TELEGRAM_TOKEN, TELEGRAM_USER_ID]):
-    print("❌ Не заданы необходимые переменные окружения: OK_EMAIL, OK_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID.")
+    print("❌ Задайте OK_EMAIL, OK_PASSWORD, TELEGRAM_BOT_TOKEN и TELEGRAM_USER_ID.")
     sys.exit(1)
 
-# --- Настройка логгера с отправкой в Telegram ---
+# Настройка логгера с отправкой сообщений в Telegram
 class TelegramHandler(logging.Handler):
     def __init__(self, token, chat_id):
         super().__init__()
@@ -47,18 +47,18 @@ tg = TelegramHandler(TELEGRAM_TOKEN, TELEGRAM_USER_ID)
 tg.setFormatter(formatter)
 logger.addHandler(tg)
 
-# --- WebDriver setup ---
-options = uc.ChromeOptions()
-options.add_argument('--headless=new')
-options.add_argument('--no-sandbox')
-options.add_argument('--disable-dev-shm-usage')
-options.add_argument('--disable-gpu')
-options.add_argument('--window-size=1920,1080')
+# Настройка Chrome WebDriver
+driver_opts = uc.ChromeOptions()
+driver_opts.add_argument('--headless=new')
+driver_opts.add_argument('--no-sandbox')
+driver_opts.add_argument('--disable-dev-shm-usage')
+driver_opts.add_argument('--disable-gpu')
+driver_opts.add_argument('--window-size=1920,1080')
 
-driver = uc.Chrome(options=options)
+driver = uc.Chrome(options=driver_opts)
 wait = WebDriverWait(driver, 20)
 
-# --- Шаг подтверждения «It’s you» ---
+# Подтверждение "It's you"
 def try_confirm_identity():
     try:
         btn = wait.until(EC.element_to_be_clickable((By.XPATH,
@@ -67,22 +67,23 @@ def try_confirm_identity():
             " | //button[contains(text(), 'Да, это я')]"
         )))
         btn.click()
-        logger.info("🔓 'It’s you' пройдено.")
+        logger.info("🔓 'It's you' подтверждено.")
         driver.save_screenshot("after_confirm_identity.png")
         time.sleep(1)
     except TimeoutException:
-        logger.info("ℹ️ Страница 'It’s you' не показана.")
+        logger.info("ℹ️ Страница 'It's you' не показана.")
 
-# --- Функция получения SMS-кода из Telegram ---
+# Получение SMS-кода из Telegram
+
 def retrieve_sms_code(timeout=120, poll_interval=5):
-    api_get = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     deadline = time.time() + timeout
     last_update = None
-    logger.info("⏳ Ожидание SMS-кода в Telegram...")
+    logger.info("⏳ Ожидание SMS-кода...")
 
     while time.time() < deadline:
         try:
-            resp = requests.get(api_get, params={'timeout':0,'offset':last_update}).json()
+            resp = requests.get(api_url, params={'timeout': 0, 'offset': last_update}).json()
         except Exception as e:
             logger.warning(f"Ошибка Telegram API: {e}")
             time.sleep(poll_interval)
@@ -90,88 +91,86 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
         if not resp.get('ok'):
             time.sleep(poll_interval)
             continue
+
         for upd in resp.get('result', []):
             last_update = upd['update_id'] + 1
             msg = upd.get('message') or upd.get('edited_message')
             if not msg or str(msg['chat']['id']) != TELEGRAM_USER_ID:
                 continue
-            text = msg.get('text','')
+            text = msg.get('text', '')
             m = re.search(r"(\d{4,6})", text)
             if m:
                 code = m.group(1)
                 logger.info(f"📥 Код получен: {code}")
                 return code
         time.sleep(poll_interval)
-    raise TimeoutException("Не был получен SMS-код в Telegram")
+    raise TimeoutException("Не получен SMS-код в Telegram")
 
-# --- Шаг запроса SMS-верификации ---
+# Запрос и ввод SMS-кода
 def try_sms_verification():
     try:
-        # 1) Ждём заголовок
-        wait.until(EC.presence_of_element_located((By.XPATH,
-            "//h2[contains(., 'Get verification code')]"
-            "|//h2[contains(., 'Получить код подтверждения')]"
+        # Ожидание кнопки input[type=submit][value='Get code']
+        driver.save_screenshot("sms_verification_page.png")
+        get_code_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+            "//input[@type='submit' and @value='Get code']"
         )))
-
-        # 2) Кликаем кнопку Get code или Получить код
-        btn = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//*[self::button or self::a or self::div][normalize-space(text())='Get code']"
-            "|//*[self::button or self::a or self::div][normalize-space(text())='Получить код']"
-        )))
-        btn.click()
-        logger.info("📲 Нажата кнопка 'Get code'. SMS-код запрошен.")
+        get_code_btn.click()
+        logger.info("📲 Нажата кнопка 'Get code', SMS-код запрошен.")
         driver.save_screenshot("sms_requested.png")
 
-        # 3) Ждём поле ввода и уведомляем
-        inp = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//input[@name='otp']|//input[contains(@placeholder,'код')]"
+        # Ожидание поля ввода кода
+        inp = wait.until(EC.presence_of_element_located((By.XPATH,
+            "//input[@name='otp'] | //input[contains(@placeholder, 'код')]"
         )))
-        logger.info("📲 Жду SMS-код. Отправьте его в Telegram.")
+        logger.info("📲 Скрипт ожидает SMS-код. Отправьте его боту.")
         driver.save_screenshot("sms_input_field.png")
 
-        # 4) Получаем и вводим код
+        # Получение и ввод кода
         code = retrieve_sms_code()
         inp.send_keys(code)
         driver.save_screenshot("sms_code_entered.png")
 
-        # 5) Подтверждаем код
-        ok = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//button[normalize-space(text())='Submit']"
-            "|//button[normalize-space(text())='Подтвердить']"
+        # Подтверждение кода
+        ok_btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+            "//input[@type='submit' and @value='Submit'] | //button[normalize-space(text())='Submit'] | //button[normalize-space(text())='Подтвердить']"
         )))
-        ok.click()
+        ok_btn.click()
         logger.info("✅ SMS-код подтверждён.")
         driver.save_screenshot("sms_confirmed.png")
     except TimeoutException:
         logger.error("❌ Не найдена кнопка 'Get code' или поле ввода кода.")
     except Exception as e:
-        logger.error(f"❌ Ошибка во время SMS-верификации: {e}")
+        logger.error(f"❌ Ошибка SMS-верификации: {e}")
 
-# --- Основной сценарий авторизации ---
-try:
-    logger.info("Открываем https://ok.ru...")
-    driver.get("https://ok.ru/")
-    driver.save_screenshot("login_page.png")
+# Основной сценарий авторизации
+def main():
+    try:
+        logger.info("Открываем OK.RU...")
+        driver.get("https://ok.ru/")
+        driver.save_screenshot("login_page.png")
 
-    # Вводим учётные данные
-    wait.until(EC.presence_of_element_located((By.NAME,'st.email'))).send_keys(EMAIL)
-    driver.find_element(By.NAME,'st.password').send_keys(PASSWORD)
-    driver.save_screenshot("credentials_entered.png")
+        # Ввод Email и пароля
+        wait.until(EC.presence_of_element_located((By.NAME, 'st.email'))).send_keys(EMAIL)
+        driver.find_element(By.NAME, 'st.password').send_keys(PASSWORD)
+        driver.save_screenshot("credentials_entered.png")
 
-    # Отправляем форму
-    logger.info("Отправляем форму логина...")
-    driver.find_element(By.XPATH,"//input[@type='submit']").click()
-    time.sleep(2)
-    driver.save_screenshot("after_login_submit.png")
+        # Отправка формы
+        logger.info("Отправляем форму входа...")
+        driver.find_element(By.XPATH, "//input[@type='submit']").click()
+        time.sleep(2)
+        driver.save_screenshot("after_login_submit.png")
 
-    # Обработка «It’s you» и SMS
-    try_confirm_identity()
-    try_sms_verification()
+        # Подтверждение личности и SMS-верификация
+        try_confirm_identity()
+        try_sms_verification()
 
-    logger.info("Авторизация завершена.")
-except Exception as ex:
-    logger.error(f"Критическая ошибка: {ex}")
-    driver.save_screenshot("fatal_error.png")
-finally:
-    driver.quit()
-    logger.info("Драйвер закрыт.")
+        logger.info("Авторизация завершена.")
+    except Exception as ex:
+        logger.error(f"Критическая ошибка: {ex}")
+        driver.save_screenshot("fatal_error.png")
+    finally:
+        driver.quit()
+        logger.info("Драйвер закрыт.")
+
+if __name__ == '__main__':
+    main()
