@@ -111,7 +111,7 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
     logger.error("❌ Таймаут ожидания SMS-кода")
     raise TimeoutException("SMS-код не получен (таймаут)")
 
-# 3) Запрос и ввод SMS-кода
+# 3) Запрос и ввод SMS-кода с проверкой лимита и редирект проверки
 def try_sms_verification():
     try:
         # запрос кода
@@ -123,12 +123,21 @@ def try_sms_verification():
         logger.info("📲 'Get code' нажат, SMS-код запрошен.")
         driver.save_screenshot("sms_requested.png")
 
-        # проверка лимита
+        # проверка ограничений
         time.sleep(1)
         body_text = driver.find_element(By.TAG_NAME,"body").text.lower()
         if "you are performing this action too often" in body_text:
             logger.error("🛑 Ограничение: слишком частые запросы.")
             driver.save_screenshot("sms_rate_limit.png")
+            sys.exit(1)
+
+        # проверка редиректа на ленту как алерт успешной аутентификации
+        try:
+            WebDriverWait(driver, 15).until(EC.url_contains("/feed"))
+            logger.info("✅ Редирект на /feed подтверждает вход.")
+        except TimeoutException:
+            logger.error("❌ Нет редиректа на /feed, вход не подтверждён.")
+            driver.save_screenshot("no_feed_redirect.png")
             sys.exit(1)
 
         # получение и ввод кода
@@ -150,7 +159,7 @@ def try_sms_verification():
         logger.info("✅ SMS-код подтверждён, нажата 'Next'.")
         driver.save_screenshot("sms_confirmed.png")
     except TimeoutException:
-        logger.error("❌ Не дождались SMS-кода или формы.")
+        logger.error("❌ Не дождались SMS-кода, формы или редиректа.")
         driver.save_screenshot("sms_timeout.png")
         sys.exit(1)
     except Exception as e:
@@ -159,7 +168,7 @@ def try_sms_verification():
         sys.exit(1)
 
 # Основной сценарий
-def main():
+if __name__=='__main__':
     try:
         logger.info("🚀 Открываю OK.RU...")
         driver.get("https://ok.ru/")
@@ -182,6 +191,3 @@ def main():
         sys.exit(1)
     finally:
         driver.quit(); logger.info("🔒 Драйвер закрыт.")
-
-if __name__=='__main__':
-    main()
