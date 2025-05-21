@@ -111,21 +111,18 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
     logger.error("❌ Таймаут ожидания SMS-кода")
     raise TimeoutException("SMS-код не получен (таймаут)")
 
-# 3) Запрос и ввод SMS-кода
-#    прежде проверим, не произошел ли редирект на /feed => вошли без SMS
-
+# 3) Проверка логина по data-l и SMS-верификация
 def try_sms_verification():
     try:
-        # проверка редиректа на /feed (без SMS)
-        try:
-            wait_short = WebDriverWait(driver, 10)
-            wait_short.until(EC.url_contains("/feed"))
-            logger.info("✅ Уже залогинен: редирект на /feed обнаружен, SMS не требуется.")
+        # Проверяем data-l в <body> для авторизации
+        data_l = driver.find_element(By.TAG_NAME, 'body').get_attribute('data-l') or ''
+        if 'userMain' in data_l and 'anonymMain' not in data_l:
+            logger.info("✅ По data-l пользователь залогинен, SMS не требуется.")
             return
-        except TimeoutException:
-            logger.info("🔄 Редирект на /feed не обнаружен, переходим к SMS-верификации.")
+        else:
+            logger.info("🔄 Пользователь аноним, начинаем SMS-верификацию.")
 
-        # запрос кода
+        # Запрос SMS-кода
         driver.save_screenshot("sms_verification_page.png")
         btn = wait.until(EC.element_to_be_clickable((By.XPATH,
             "//input[@type='submit' and @value='Get code']"
@@ -134,33 +131,35 @@ def try_sms_verification():
         logger.info("📲 'Get code' нажат, SMS-код запрошен.")
         driver.save_screenshot("sms_requested.png")
 
-        # проверка ограничения частых запросов
+        # Проверка ограничения частых запросов
         time.sleep(1)
-        body_text = driver.find_element(By.TAG_NAME,"body").text.lower()
+        body_text = driver.find_element(By.TAG_NAME, 'body').text.lower()
         if "you are performing this action too often" in body_text:
             logger.error("🛑 Ограничение: слишком частые запросы.")
             driver.save_screenshot("sms_rate_limit.png")
             sys.exit(1)
 
-        # получение и ввод кода
-        inp = WebDriverWait(driver,30).until(EC.presence_of_element_located((By.XPATH,
+        # Получение и ввод кода
+        inp = WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.XPATH,
             "//input[@id='smsCode' or contains(@name,'smsCode')]"
         )))
         driver.save_screenshot("sms_input_field.png")
         code = retrieve_sms_code()
-        inp.clear(); inp.send_keys(code)
+        inp.clear()
+        inp.send_keys(code)
         logger.info(f"✍️ Код введён: {code}")
         driver.save_screenshot("sms_code_entered.png")
 
-        # нажать Next
+        # Подтверждение кода
         next_btn = driver.find_element(By.XPATH,
             "//input[@type='submit' and @value='Next']"
         )
         next_btn.click()
         logger.info("✅ SMS-код подтверждён, нажата 'Next'.")
         driver.save_screenshot("sms_confirmed.png")
+
     except TimeoutException:
-        logger.error("❌ Не дождались SMS-кода, формы или редиректа.")
+        logger.error("❌ Не дождались SMS-кода или форма не появилась.")
         driver.save_screenshot("sms_timeout.png")
         sys.exit(1)
     except Exception as e:
@@ -174,21 +173,26 @@ if __name__=='__main__':
         logger.info("🚀 Открываю OK.RU...")
         driver.get("https://ok.ru/")
         driver.save_screenshot("login_page.png")
-        # ввод учётных
+
+        # Ввод учётных данных
         wait.until(EC.presence_of_element_located((By.NAME,'st.email'))).send_keys(EMAIL)
         driver.find_element(By.NAME,'st.password').send_keys(PASSWORD)
         driver.save_screenshot("credentials_entered.png")
-        # вход
+
+        # Отправка формы логина
         logger.info("🔑 Отправляю форму логина...")
-        driver.find_element(By.XPATH,"//input[@type='submit']").click()
+        driver.find_element(By.XPATH, "//input[@type='submit']").click()
         time.sleep(2)
         driver.save_screenshot("after_login_submit.png")
+
         try_confirm_identity()
         try_sms_verification()
+
         logger.info("🎉 Авторизация завершена.")
     except Exception as ex:
         logger.error(f"🔥 Критическая ошибка: {ex}")
         driver.save_screenshot("fatal_error.png")
         sys.exit(1)
     finally:
-        driver.quit(); logger.info("🔒 Драйвер закрыт.")
+        driver.quit()
+        logger.info("🔒 Драйвер закрыт.")
