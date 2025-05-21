@@ -111,9 +111,20 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
     logger.error("❌ Таймаут ожидания SMS-кода")
     raise TimeoutException("SMS-код не получен (таймаут)")
 
-# 3) Запрос и ввод SMS-кода с проверкой лимита и редирект проверки
+# 3) Запрос и ввод SMS-кода
+#    прежде проверим, не произошел ли редирект на /feed => вошли без SMS
+
 def try_sms_verification():
     try:
+        # проверка редиректа на /feed (без SMS)
+        try:
+            wait_short = WebDriverWait(driver, 10)
+            wait_short.until(EC.url_contains("/feed"))
+            logger.info("✅ Уже залогинен: редирект на /feed обнаружен, SMS не требуется.")
+            return
+        except TimeoutException:
+            logger.info("🔄 Редирект на /feed не обнаружен, переходим к SMS-верификации.")
+
         # запрос кода
         driver.save_screenshot("sms_verification_page.png")
         btn = wait.until(EC.element_to_be_clickable((By.XPATH,
@@ -123,7 +134,7 @@ def try_sms_verification():
         logger.info("📲 'Get code' нажат, SMS-код запрошен.")
         driver.save_screenshot("sms_requested.png")
 
-        # проверка ограничений
+        # проверка ограничения частых запросов
         time.sleep(1)
         body_text = driver.find_element(By.TAG_NAME,"body").text.lower()
         if "you are performing this action too often" in body_text:
@@ -131,22 +142,12 @@ def try_sms_verification():
             driver.save_screenshot("sms_rate_limit.png")
             sys.exit(1)
 
-        # проверка редиректа на ленту как алерт успешной аутентификации
-        try:
-            WebDriverWait(driver, 15).until(EC.url_contains("/feed"))
-            logger.info("✅ Редирект на /feed подтверждает вход.")
-        except TimeoutException:
-            logger.error("❌ Нет редиректа на /feed, вход не подтверждён.")
-            driver.save_screenshot("no_feed_redirect.png")
-            sys.exit(1)
-
         # получение и ввод кода
-        code = retrieve_sms_code()
-        # ждать появления поля
         inp = WebDriverWait(driver,30).until(EC.presence_of_element_located((By.XPATH,
             "//input[@id='smsCode' or contains(@name,'smsCode')]"
         )))
         driver.save_screenshot("sms_input_field.png")
+        code = retrieve_sms_code()
         inp.clear(); inp.send_keys(code)
         logger.info(f"✍️ Код введён: {code}")
         driver.save_screenshot("sms_code_entered.png")
