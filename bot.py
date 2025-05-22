@@ -64,13 +64,12 @@ def try_confirm_identity():
         )))
         btn.click()
         logger.info("🔓 'It's you' подтверждено.")
+        driver.save_screenshot("after_confirm_identity.png")
         time.sleep(1)
     except Exception:
         logger.info("ℹ️ Страница 'It's you' не показана.")
 
 # 2) Получение SMS-кода из Telegram с таймаутом 120s
-#    формат: '#код текст' или просто текст
-
 def retrieve_sms_code(timeout=120, poll_interval=5):
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     last_update = None
@@ -81,8 +80,9 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
             last_update = max(ids) + 1 if ids else None
     except:
         last_update = None
+
     deadline = time.time() + timeout
-    logger.info(f"⏳ Ожидание SMS-кода, таймаут {timeout}s...")
+    logger.info(f"⏳ Ожидание SMS-кода (#код 123456 или 123456), таймаут {timeout}s...")
     while time.time() < deadline:
         try:
             resp = requests.get(api_url, params={'timeout':0,'offset': last_update}).json()
@@ -98,19 +98,66 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
             if not msg or str(msg.get('chat',{}).get('id')) != TELEGRAM_USER_ID:
                 continue
             text = msg.get('text','').strip()
-            logger.info(f"📨 Получено сообщение: {text!r}")
-            m = re.match(r"^(?:#код\s*)?(.+)$", text, flags=re.IGNORECASE)
+            logger.info(f"📨 Сообщение: {text!r}")
+            m = re.match(r"^(?:#код\s*)?(\d{4,6})$", text, flags=re.IGNORECASE)
             if m:
                 code = m.group(1)
-                logger.info(f"✅ Код или текст для SMS: {code}")
+                logger.info(f"✅ Код найден: {code}")
                 return code
         time.sleep(poll_interval)
     logger.error("❌ Таймаут ожидания SMS-кода")
     raise TimeoutException("SMS-код не получен (таймаут)")
 
-# 3) Получение текста для поста из Telegram
-#    ждет '#пост ТЕКСТ'
+# 3) Проверка логина по data-l и SMS-верификация
+def try_sms_verification():
+    try:
+        data_l = driver.find_element(By.TAG_NAME, 'body').get_attribute('data-l') or ''
+        if 'userMain' in data_l and 'anonymMain' not in data_l:
+            logger.info("✅ По data-l пользователь залогинен, SMS не требуется.")
+            return
+        logger.info("🔄 Пользователь аноним, начинаем SMS-верификацию.")
 
+        driver.save_screenshot("sms_verification_page.png")
+        btn = wait.until(EC.element_to_be_clickable((By.XPATH,
+            "//input[@type='submit' and @value='Get code']"
+        )))
+        btn.click()
+        logger.info("📲 'Get code' нажат, SMS-код запрошен.")
+        driver.save_screenshot("sms_requested.png")
+
+        time.sleep(1)
+        body_text = driver.find_element(By.TAG_NAME, 'body').text.lower()
+        if "you are performing this action too often" in body_text:
+            logger.error("🛑 Ограничение: слишком частые запросы.")
+            driver.save_screenshot("sms_rate_limit.png")
+            sys.exit(1)
+
+        inp = WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.XPATH,
+            "//input[@id='smsCode' or contains(@name,'smsCode')]"
+        )))
+        driver.save_screenshot("sms_input_field.png")
+        code = retrieve_sms_code()
+        inp.clear(); inp.send_keys(code)
+        logger.info(f"✍️ Код введён: {code}")
+        driver.save_screenshot("sms_code_entered.png")
+
+        next_btn = driver.find_element(By.XPATH,
+            "//input[@type='submit' and @value='Next']"
+        )
+        next_btn.click()
+        logger.info("✅ SMS-код подтверждён, нажата 'Next'.")
+        driver.save_screenshot("sms_confirmed.png")
+    except TimeoutException:
+        logger.error("❌ Не дождались SMS-кода или форма не появилась.")
+        driver.save_screenshot("sms_timeout.png")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"❌ Ошибка SMS-верификации: {e}")
+        driver.save_screenshot("sms_error.png")
+        sys.exit(1)
+
+# 4) Ожидание и получение текста для поста из Telegram
+#    формат: '#пост <текст>'
 def retrieve_post_text(poll_interval=5):
     api_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     last_update = None
@@ -141,52 +188,57 @@ def retrieve_post_text(poll_interval=5):
             m = re.match(r"^#пост\s+(.+)$", text, flags=re.IGNORECASE)
             if m:
                 post = m.group(1)
-                logger.info(f"✅ Текст для поста: {post}")
+                logger.info(f"✅ Текст для поста: {post!r}")
                 return post
         time.sleep(poll_interval)
 
-# 4) Постинг на страницу пользователя (OK.ru Feed)
+# 5) Постинг текста в ленту OK.ru
+
 def post_to_ok(text):
-    logger.info("🚀 Публикую пост на страницу...")
+    logger.info("🚀 Публикую пост на странице...")
     driver.get("https://ok.ru/feed")
-    # Ожидаем поле ввода поста
     textarea = wait.until(EC.presence_of_element_located((By.XPATH,
         "//textarea[contains(@class,'posting_field')]"
     )))
     textarea.click()
     textarea.send_keys(text)
     time.sleep(1)
-    # Нажимаем кнопку 'Опубликовать'
     publish = wait.until(EC.element_to_be_clickable((By.XPATH,
         "//button[contains(.,'Опубликовать')]"
     )))
     publish.click()
     logger.info("✅ Пост опубликован!")
+    driver.save_screenshot("posted.png")
 
 # Основной сценарий
-def main():
+if __name__=='__main__':
     try:
         logger.info("🚀 Открываю OK.RU...")
         driver.get("https://ok.ru/")
-        # ввод и логин
+        driver.save_screenshot("login_page.png")
+
+        # Логин
         wait.until(EC.presence_of_element_located((By.NAME,'st.email'))).send_keys(EMAIL)
         driver.find_element(By.NAME,'st.password').send_keys(PASSWORD)
-        driver.find_element(By.XPATH,"//input[@type='submit']").click()
+        driver.save_screenshot("credentials_entered.png")
+        logger.info("🔑 Отправляю форму логина...")
+        driver.find_element(By.XPATH, "//input[@type='submit']").click()
         time.sleep(2)
+        driver.save_screenshot("after_login_submit.png")
+
+        # Верификация
         try_confirm_identity()
-        # SMS-верификация, если требуется
-        code = retrieve_sms_code()
-        # реальное использование кода не нужно здесь, пропустим
-        # Дальше ждем команду #пост и публикуем
-        post = retrieve_post_text()
-        post_to_ok(post)
+        try_sms_verification()
+        logger.info("🎉 Авторизация завершена.")
+
+        # Постинг через Telegram
+        post_text = retrieve_post_text()
+        post_to_ok(post_text)
         logger.info("🎉 Скрипт завершен.")
     except Exception as ex:
-        logger.error(f"🔥 Ошибка: {ex}")
+        logger.error(f"🔥 Критическая ошибка: {ex}")
+        driver.save_screenshot("fatal_error.png")
         sys.exit(1)
     finally:
         driver.quit()
         logger.info("🔒 Драйвер закрыт.")
-
-if __name__ == '__main__':
-    main()
