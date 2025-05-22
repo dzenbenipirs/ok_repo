@@ -12,13 +12,18 @@ def post_to_group(group_url, video_url, text):
     box.click()
     box.clear()
 
-    # 1) вставляем чисто URL
+    # 1) вставляем чисто URL и жмём Enter
     logger.info(f"✍️ Вставляю ссылку на видео: {video_url}")
-    box.send_keys(video_url)
 
-    # 2) ждём 5 секунд, чтобы OK подтянул видео по ссылке
-    logger.info("⏳ Жду 5 секунд для подтягивания видео…")
-    time.sleep(5)
+    # 2) ждём, пока OK подтянет видео и удалит сам URL
+    logger.info("⏳ Ожидаю, пока подтянется видео…")
+    try:
+        # здесь ждём появления любого блока с видео (может быть div с классом js-video-scope или блок превью)
+        wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, ".js-video-scope, .posting_video-upload, .posting_tracks")
+        ))
+    except TimeoutException:
+        logger.warning("⚠️ Видео не подтянулось за 15 сек, продолжаем…")
 
     # 3) вставляем текст
     logger.info(f"✍️ Вставляю текст: {text!r}")
@@ -30,5 +35,4 @@ def post_to_group(group_url, video_url, text):
     )))
     btn.click()
     logger.info(f"✅ Опубликовано в {group_url}")
-    driver.save_screenshot(f"posted_{group_url.split('/')[-1]}.png")
     time.sleep(1)
