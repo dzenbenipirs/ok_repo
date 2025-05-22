@@ -116,7 +116,7 @@ def try_sms_verification():
         logger.info("🔄 Начинаем SMS-верификацию.")
         driver.save_screenshot("sms_page.png")
         btn = wait.until(EC.element_to_be_clickable((By.XPATH,
-            "//input[@type='submit' and @value='Get code']"
+            "//input[@type='submit' and @value=\"Get code\"]"
         )))
         btn.click()
         logger.info("📲 Get code нажата.")
@@ -134,7 +134,7 @@ def try_sms_verification():
         inp.clear(); inp.send_keys(code)
         logger.info(f"✍️ Введён код {code}")
         driver.save_screenshot("sms_filled.png")
-        next_btn = driver.find_element(By.XPATH,"//input[@type='submit' and @value='Next']")
+        next_btn = driver.find_element(By.XPATH, "//input[@type='submit' and @value=\"Next\"]")
         next_btn.click()
         logger.info("✅ SMS подтверждён.")
         driver.save_screenshot("sms_done.png")
@@ -157,14 +157,11 @@ def retrieve_groups(poll_interval=5):
         last_update = None
     logger.info("⏳ Ожидаю списка групп: #группы <urls> ...")
     while True:
-        try:
-            resp = requests.get(api_url, params={'timeout':0,'offset': last_update}).json()
-        except Exception as e:
-            logger.warning(f"Ошибка Telegram API: {e}")
-            time.sleep(poll_interval); continue
+        resp = requests.get(api_url, params={'timeout':0,'offset': last_update}).json()
         if not resp.get('ok'):
             time.sleep(poll_interval); continue
-        for upd in resp.get('result', []):
+        ids = resp.get('result', [])
+        for upd in ids:
             last_update = upd['update_id'] + 1
             msg = upd.get('message') or upd.get('edited_message')
             if not msg or str(msg.get('chat',{}).get('id')) != TELEGRAM_USER_ID:
@@ -193,11 +190,7 @@ def retrieve_post_text(poll_interval=5):
         last_update = None
     logger.info("⏳ Ожидаю команды #пост <текст> ...")
     while True:
-        try:
-            resp = requests.get(api_url, params={'timeout':0,'offset': last_update}).json()
-        except Exception as e:
-            logger.warning(f"Ошибка Telegram API: {e}")
-            time.sleep(poll_interval); continue
+        resp = requests.get(api_url, params={'timeout':0,'offset': last_update}).json()
         if not resp.get('ok'):
             time.sleep(poll_interval); continue
         for upd in resp.get('result', []):
@@ -219,15 +212,13 @@ def post_to_group(group_url, text):
     post_url = group_url.rstrip('/') + '/post'
     logger.info(f"🚀 Открываю {post_url}")
     driver.get(post_url)
-    # Ждём появление поля
     box = wait.until(EC.presence_of_element_located((By.XPATH,
-        "//div[@contenteditable='true' and contains(@class,'js-ok-e')]
+        "//div[@contenteditable='true']"
     )))
     box.click(); box.clear(); box.send_keys(text)
     logger.info(f"✍️ Ввёл текст для {group_url}")
-    # Ждём кнопку Поделиться
     btn = wait.until(EC.element_to_be_clickable((By.XPATH,
-        "//button[contains(@class,'js-pf-submit-btn') and @data-action='submit']"
+        "//button[@data-action='submit' and contains(@class,'js-pf-submit-btn')]"
     )))
     btn.click()
     logger.info(f"✅ Опубликовано в {group_url}")
@@ -249,10 +240,8 @@ def main():
         try_confirm_identity()
         try_sms_verification()
         logger.info("🎉 Авторизация завершена.")
-        # Получаем список групп и текст поста
         groups = retrieve_groups()
         post_text = retrieve_post_text()
-        # Публикуем
         for g in groups:
             post_to_group(g, post_text)
         logger.info("🎉 Все посты отправлены.")
