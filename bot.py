@@ -73,7 +73,7 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
     try:
         init = requests.get(api_url, params={'timeout':0}).json()
         if init.get('ok'):
-            ids = [u['update_id'] for u in init.get('result', [])]
+            ids = [u['update_id'] for u in init['result']]
             last_update = max(ids) + 1 if ids else None
     except:
         last_update = None
@@ -84,19 +84,17 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
             resp = requests.get(api_url, params={'timeout':0,'offset': last_update}).json()
         except Exception as e:
             logger.warning(f"Ошибка Telegram API: {e}")
-            time.sleep(poll_interval)
-            continue
+            time.sleep(poll_interval); continue
         if not resp.get('ok'):
-            time.sleep(poll_interval)
-            continue
-        for upd in resp.get('result', []):
+            time.sleep(poll_interval); continue
+        for upd in resp['result']:
             last_update = upd['update_id'] + 1
             msg = upd.get('message') or upd.get('edited_message')
             if not msg or str(msg.get('chat',{}).get('id')) != TELEGRAM_USER_ID:
                 continue
             text = msg.get('text','').strip()
             logger.info(f"📨 Получено: {text!r}")
-            m = re.match(r"^(?:#код\s*)?(\d{4,6})$", text, flags=re.IGNORECASE)
+            m = re.match(r"^(?:#код\s*)?(\d{4,6})$", text, re.IGNORECASE)
             if m:
                 code = m.group(1)
                 logger.info(f"✅ Код: {code}")
@@ -119,16 +117,14 @@ def try_sms_verification():
         btn.click()
         logger.info("📲 Get code нажата.")
         time.sleep(1)
-        body_text = driver.find_element(By.TAG_NAME,'body').text.lower()
-        if 'too often' in body_text:
+        if 'too often' in driver.find_element(By.TAG_NAME,'body').text.lower():
             logger.error("🛑 Rate limit.")
             sys.exit(1)
         inp = wait.until(EC.presence_of_element_located((By.XPATH,
             "//input[@id='smsCode' or contains(@name,'smsCode')]"
         )))
         code = retrieve_sms_code()
-        inp.clear()
-        inp.send_keys(code)
+        inp.clear(); inp.send_keys(code)
         logger.info(f"✍️ Введён код {code}")
         next_btn = driver.find_element(By.XPATH, "//input[@type='submit' and @value='Next']")
         next_btn.click()
@@ -164,7 +160,7 @@ def retrieve_groups(poll_interval=5):
                         return urls
         time.sleep(poll_interval)
 
-# Ожидание текста поста (#пост)
+# Ожидание видео и текста (#пост <url> <text>)
 def retrieve_post_text(poll_interval=5):
     api = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     last = None
@@ -173,7 +169,7 @@ def retrieve_post_text(poll_interval=5):
         ids = [u['update_id'] for u in init['result']]
         last = max(ids) + 1 if ids else None
 
-    logger.info("⏳ Ожидаю #пост ...")
+    logger.info("⏳ Ожидаю #пост <url> <текст> ...")
     while True:
         resp = requests.get(api, params={'timeout':0,'offset': last}).json()
         if resp.get('ok'):
@@ -185,13 +181,18 @@ def retrieve_post_text(poll_interval=5):
                 text = msg.get('text','').strip()
                 m = re.match(r"#пост\s+(.+)", text, re.IGNORECASE)
                 if m:
-                    post = m.group(1)
-                    logger.info(f"✅ Текст поста: {post!r}")
-                    return post
+                    rest = m.group(1).strip()
+                    # выделяем первую ссылку и остальной текст
+                    url_match = re.search(r"https?://\S+", rest)
+                    if url_match:
+                        video_url = url_match.group(0)
+                        post_text = rest.replace(video_url, "").strip()
+                        logger.info(f"✅ Видео: {video_url}, текст: {post_text!r}")
+                        return video_url, post_text
         time.sleep(poll_interval)
 
-# Постинг в группу с ожиданием «превью» видео
-def post_to_group(group_url, text):
+# Постинг в группу: сначала ссылка, ждём 5с, потом текст и publish
+def post_to_group(group_url, video_url, text):
     post_url = group_url.rstrip('/') + '/post'
     logger.info(f"🚀 Открываю {post_url}")
     driver.get(post_url)
@@ -200,9 +201,13 @@ def post_to_group(group_url, text):
     )))
     box.click()
     box.clear()
-    box.send_keys(text)
-    logger.info("✍️ Текст вставлен, жду 5 секунд для загрузки видео...")
-    time.sleep(5)  # вот здесь ждем, пока подтянется видео по ссылке
+    # вставляем ссылку
+    box.send_keys(video_url)
+    logger.info("✍️ Вставлена ссылка, ждём 5 сек...")
+    time.sleep(5)
+    # затем вставляем текст
+    box.send_keys(" " + text)
+    logger.info("✍️ Вставлен текст поста.")
     btn = wait.until(EC.element_to_be_clickable((By.XPATH,
         "//button[@data-action='submit' and contains(@class,'js-pf-submit-btn')]"
     )))
@@ -225,9 +230,9 @@ def main():
         logger.info("🎉 Авторизация успешна!")
 
         groups = retrieve_groups()
-        post_text = retrieve_post_text()
+        video_url, post_text = retrieve_post_text()
         for g in groups:
-            post_to_group(g, post_text)
+            post_to_group(g, video_url, post_text)
 
         logger.info("🎉 Все посты отправлены.")
     except Exception as e:
