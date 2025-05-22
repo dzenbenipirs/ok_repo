@@ -10,6 +10,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
+# Чтение учётных данных из окружения
 EMAIL = os.environ.get("OK_EMAIL")
 PASSWORD = os.environ.get("OK_PASSWORD")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -26,10 +27,7 @@ class TelegramHandler(logging.Handler):
         self.chat_id = chat_id
     def emit(self, record):
         try:
-            requests.post(self.url, data={
-                "chat_id": self.chat_id,
-                "text": self.format(record)
-            })
+            requests.post(self.url, data={"chat_id": self.chat_id, "text": self.format(record)})
         except:
             pass
 
@@ -63,10 +61,10 @@ def try_confirm_identity():
             " | //button[contains(text(),'Да, это я')]"
         )))
         btn.click()
-        logger.info("Подтверждение личности выполнено")
+        logger.info("✔ Подтверждение личности")
         time.sleep(1)
     except TimeoutException:
-        logger.info("Страница подтверждения личности не показана")
+        logger.info("ℹ Нет страницы подтверждения личности")
 
 def retrieve_sms_code(timeout=120, poll_interval=5):
     api = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
@@ -79,7 +77,7 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
     except:
         pass
     deadline = time.time() + timeout
-    logger.info("Ожидаю SMS-код")
+    logger.info("⏳ Ожидаю SMS-код")
     while time.time() < deadline:
         try:
             resp = requests.get(api, params={'timeout':0,'offset': last}).json()
@@ -93,26 +91,25 @@ def retrieve_sms_code(timeout=120, poll_interval=5):
             if str(msg.get('chat',{}).get('id')) != TELEGRAM_USER_ID:
                 continue
             text = msg.get('text','').strip()
-            m = re.match(r"^(?:#код\s*)?(\d{4,6})$", text, re.IGNORECASE)
-            if m:
-                logger.info("SMS-код получен")
-                return m.group(1)
+            if re.match(r"^(?:#код\s*)?\d{4,6}$", text, re.IGNORECASE):
+                logger.info("✔ SMS-код получен")
+                return re.search(r"\d{4,6}", text).group(0)
         time.sleep(poll_interval)
     raise TimeoutException("SMS-код не получен")
 
 def try_sms_verification():
     data_l = driver.find_element(By.TAG_NAME,'body').get_attribute('data-l') or ''
     if 'userMain' in data_l and 'anonymMain' not in data_l:
-        logger.info("Уже залогинены")
+        logger.info("✔ Уже залогинены")
         return
-    logger.info("Запрос SMS-кода")
+    logger.info("🔄 Запрос SMS-кода")
     btn = wait.until(EC.element_to_be_clickable((By.XPATH,
         "//input[@type='submit' and @value='Get code']"
     )))
     btn.click()
     time.sleep(1)
-    if "you are performing this action too often" in driver.find_element(By.TAG_NAME,'body').text.lower():
-        logger.error("Превышен лимит SMS-запросов")
+    if "too often" in driver.find_element(By.TAG_NAME,'body').text.lower():
+        logger.error("❗ Лимит SMS-запросов")
         sys.exit(1)
     inp = wait.until(EC.presence_of_element_located((By.XPATH,
         "//input[@id='smsCode' or contains(@name,'smsCode')]"
@@ -124,7 +121,7 @@ def try_sms_verification():
         "//input[@type='submit' and @value='Next']"
     )
     next_btn.click()
-    logger.info("SMS-верификация пройдена")
+    logger.info("✔ SMS-верификация пройдена")
 
 def retrieve_groups(poll_interval=5):
     api = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
@@ -133,7 +130,7 @@ def retrieve_groups(poll_interval=5):
     if init.get('ok'):
         ids = [u['update_id'] for u in init['result']]
         last = max(ids)+1 if ids else None
-    logger.info("Ожидаю #группы …")
+    logger.info("⏳ Ожидаю команды #группы")
     while True:
         resp = requests.get(api, params={'timeout':0,'offset': last}).json()
         if resp.get('ok'):
@@ -147,7 +144,7 @@ def retrieve_groups(poll_interval=5):
                 if m:
                     urls = re.findall(r"https?://ok\.ru/group/\d+/?", m.group(1))
                     if urls:
-                        logger.info("Группы получены")
+                        logger.info("✔ Группы получены")
                         return urls
         time.sleep(poll_interval)
 
@@ -158,7 +155,7 @@ def retrieve_post_text(poll_interval=5):
     if init.get('ok'):
         ids = [u['update_id'] for u in init['result']]
         last = max(ids)+1 if ids else None
-    logger.info("Ожидаю #пост <url> <текст>")
+    logger.info("⏳ Ожидаю команды #пост")
     while True:
         resp = requests.get(api, params={'timeout':0,'offset': last}).json()
         if resp.get('ok'):
@@ -175,13 +172,13 @@ def retrieve_post_text(poll_interval=5):
                     if url_m:
                         video_url = url_m.group(0)
                         text = rest.replace(video_url, "").strip()
-                        logger.info("Команда принята")
+                        logger.info("✔ Команда #пост получена")
                         return video_url, text
         time.sleep(poll_interval)
 
 def post_to_group(group_url, video_url, text):
     post_url = group_url.rstrip('/') + '/post'
-    logger.info(f"Публикую в {group_url}")
+    logger.info("🚀 Открываю форму поста")
     driver.get(post_url)
     box = wait.until(EC.element_to_be_clickable((By.XPATH,
         "//div[@contenteditable='true']"
@@ -189,31 +186,23 @@ def post_to_group(group_url, video_url, text):
     box.click()
     box.clear()
 
-    # вставляем ссылку
     box.send_keys(video_url)
-    logger.info("Ссылка вставлена, жду 5 сек")
+    logger.info("✔ Вставил ссылку, жду 5 секунды")
     time.sleep(5)
 
-    # удаляем сам URL из HTML
-    driver.execute_script(
-        "arguments[0].innerHTML = arguments[0].innerHTML.replace(arguments[1], '');",
-        box, video_url
-    )
-
-    # вставляем текст без ссылки
     box.send_keys(" " + text)
-    logger.info("Текст вставлен")
+    logger.info("✔ Вставил текст")
 
     btn = wait.until(EC.element_to_be_clickable((By.XPATH,
         "//button[@data-action='submit' and contains(@class,'js-pf-submit-btn')]"
     )))
     btn.click()
-    logger.info("Опубликовано")
+    logger.info("✔ Пост опубликован")
     time.sleep(1)
 
 def main():
     try:
-        logger.info("Старт авторизации")
+        logger.info("🚀 Старт авторизации")
         driver.get("https://ok.ru/")
         wait.until(EC.presence_of_element_located((By.NAME,'st.email'))).send_keys(EMAIL)
         driver.find_element(By.NAME,'st.password').send_keys(PASSWORD)
@@ -222,20 +211,20 @@ def main():
 
         try_confirm_identity()
         try_sms_verification()
-        logger.info("Авторизация прошла")
+        logger.info("✔ Авторизация успешна")
 
         groups = retrieve_groups()
         video_url, post_text = retrieve_post_text()
         for g in groups:
             post_to_group(g, video_url, post_text)
 
-        logger.info("Готово — все посты отправлены")
+        logger.info("🎉 Все посты отправлены")
     except Exception:
-        logger.error("Произошла критическая ошибка")
+        logger.error("❌ Критическая ошибка")
         sys.exit(1)
     finally:
         driver.quit()
-        logger.info("Драйвер закрыт")
+        logger.info("🔒 Драйвер закрыт")
 
 if __name__ == '__main__':
     main()
