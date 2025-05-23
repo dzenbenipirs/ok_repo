@@ -20,7 +20,7 @@ if not all([EMAIL, PASSWORD, TELEGRAM_TOKEN, TELEGRAM_USER_ID]):
     print("❌ Задайте OK_EMAIL, OK_PASSWORD, TELEGRAM_BOT_TOKEN и TELEGRAM_USER_ID.")
     sys.exit(1)
 
-# Логгер: консоль + Telegram (без текстов и ссылок)
+# Логгер: консоль + Telegram
 class TelegramHandler(logging.Handler):
     def __init__(self, token, chat_id):
         super().__init__()
@@ -194,26 +194,39 @@ def post_to_group(group_url, video_url, text):
     post_url = group_url.rstrip('/') + '/post'
     logger.info("🚀 Открываю страницу постинга")
     driver.get(post_url)
+
+    # находим и активируем поле ввода
     box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR,
         "div[contenteditable='true']"
     )))
-    box.click(); box.clear()
+    box.click()
+    box.clear()
+
     # 1) вставляем ссылку
     box.send_keys(video_url)
     logger.info("✍️ Ссылка вставлена")
-    # 2) ждём карточку видео
-    logger.info("⏳ Жду карточку видео")
-    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR,
-        "div.vid-card.vid-card__xl"
-    )))
-    # 3) вставляем текст (без ссылки)
+
+    # 2) ждём 5 секунд, пока появится превью видео
+    try:
+        time.sleep(5)
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR,
+            "div.vid-card.vid-card__xl"
+        )), f"Видео-карта не появилась на {group_url}")
+        logger.info("✅ Видео-карта появилась")
+    except TimeoutException:
+        logger.warning("⚠️ Не удалось дождаться карточки видео — продолжаем вставлять текст")
+
+    # 3) вставляем текст (с пробелом перед текстом)
     box.send_keys(" " + text)
     logger.info("✍️ Текст вставлен")
+
+    # 4) нажимаем кнопку «Опубликовать»
     btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR,
         "button.js-pf-submit-btn[data-action='submit']"
     )))
     btn.click()
     logger.info("✅ Опубликовано")
+
     time.sleep(1)
 
 def main():
