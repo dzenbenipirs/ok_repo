@@ -6,6 +6,7 @@ import logging
 import sys
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
@@ -202,19 +203,25 @@ def post_to_group(group_url, video_url, text):
     box.click()
     box.clear()
 
-    # 1) вставляем ссылку
+    # 1) вставляем ссылку и пробел, чтобы триггернуть загрузку превью
     box.send_keys(video_url)
-    logger.info("✍️ Ссылка вставлена")
+    box.send_keys(Keys.SPACE)
+    logger.info("✍️ Ссылка вставлена и пробел отправлен")
 
-    # 2) ждём 5 секунд, пока появится превью видео
-    try:
-        time.sleep(5)
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR,
-            "div.vid-card.vid-card__xl"
-        )), f"Видео-карта не появилась на {group_url}")
+    # 2) ждём до 10 секунд, проверяя наличие карточки превью
+    attached = False
+    for _ in range(10):
+        # основной селектор
+        if driver.find_elements(By.CSS_SELECTOR, "div.vid-card.vid-card__xl"):
+            attached = True; break
+        # альтернативные селекторы
+        if driver.find_elements(By.CSS_SELECTOR, "div.mediaPreview, div.mediaFlex, div.preview_thumb"):
+            attached = True; break
+        time.sleep(1)
+    if attached:
         logger.info("✅ Видео-карта появилась")
-    except TimeoutException:
-        logger.warning("⚠️ Не удалось дождаться карточки видео — продолжаем вставлять текст")
+    else:
+        logger.warning(f"⚠️ Не удалось дождаться карточки видео за 10 сек на {group_url}")
 
     # 3) вставляем текст (с пробелом перед текстом)
     box.send_keys(" " + text)
@@ -226,7 +233,6 @@ def post_to_group(group_url, video_url, text):
     )))
     btn.click()
     logger.info("✅ Опубликовано")
-
     time.sleep(1)
 
 def main():
